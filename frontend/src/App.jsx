@@ -192,7 +192,7 @@ const HINTS = {
 };
 
 /* ---------------------------- app ---------------------------- */
-const KNIGHT_IMAGE_SRC = "../public/Knight_Resting.mov";
+const KNIGHT_IMAGE_SRC = "/Knight_Resting.mov";
 
 export default function App() {
   const [loadStage, setLoadStage] = useState(0);
@@ -512,7 +512,7 @@ export default function App() {
 
   return (
     <div className={`stage${shake ? " shake" : ""} breathing`}>
-      <audio ref={audioRef} src="../public/Bg_Music_BoneFire.mp3" preload="auto" />
+<audio ref={audioRef} src="/Bg_Music_BoneFire.mp3" preload="auto" />
       <style>{CSS}</style>
 
       <div className="vignette" aria-hidden="true" />
