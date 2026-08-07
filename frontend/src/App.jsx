@@ -191,6 +191,28 @@ const HINTS = {
   emailInvalid: "That path is broken. Give a true address.",
 };
 
+/* Stub traveler letters (replace with real backend later) */
+const TRAVELER_LETTERS = [
+  {
+    id: "t1",
+    text: "I left this fire warmer than I found it. May you do the same.",
+    name: "Anonymous Traveler",
+    mood: "hopeful",
+  },
+  {
+    id: "t2",
+    text: "The night is long, but the embers remember every face that sat beside them.",
+    name: "A weary knight",
+    mood: "reflective",
+  },
+  {
+    id: "t3",
+    text: "If you are reading this, you are not alone at the last campfire.",
+    name: "Anonymous Traveler",
+    mood: "comforting",
+  },
+];
+
 /* ---------------------------- app ---------------------------- */
 const KNIGHT_IMAGE_SRC = "/Knight_Resting.mov";
 
@@ -209,6 +231,16 @@ export default function App() {
   const [postSealEmbers, setPostSealEmbers] = useState(false);
   const [inkStains, setInkStains] = useState([]);
   const [paperDust, setPaperDust] = useState([]);
+
+  // New dual-path states
+  const [journeyModal, setJourneyModal] = useState(false);
+  const [letterPath, setLetterPath] = useState(null); // "return" | "adrift"
+  const [displayName, setDisplayName] = useState("");
+  const [mood, setMood] = useState("");
+  const [readingMode, setReadingMode] = useState(false);
+  const [currentTravelerLetter, setCurrentTravelerLetter] = useState(null);
+  const [bottleAnimating, setBottleAnimating] = useState(false);
+  const [showReturnFields, setShowReturnFields] = useState(false);
 
   const flareTimeout = useRef(null);
   const settleTimeout = useRef(null);
@@ -276,10 +308,11 @@ export default function App() {
     window.addEventListener("mousemove", onMove);
 
     function tick() {
-      quillPos.current.x += (mouse.current.x - quillPos.current.x) * 0.18;
-      quillPos.current.y += (mouse.current.y - quillPos.current.y) * 0.18;
+      // tighter tracking so the quill stays close to the real cursor
+      quillPos.current.x += (mouse.current.x - quillPos.current.x) * 0.55;
+      quillPos.current.y += (mouse.current.y - quillPos.current.y) * 0.55;
       if (quillRef.current) {
-        quillRef.current.style.transform = `translate(${quillPos.current.x - 6}px, ${quillPos.current.y - 4}px) rotate(38deg)`;
+        quillRef.current.style.transform = `translate(${quillPos.current.x - 4}px, ${quillPos.current.y - 8}px) rotate(38deg)`;
       }
       rafId.current = requestAnimationFrame(tick);
     }
@@ -325,7 +358,6 @@ export default function App() {
         if (delta > 0) {
           spawnFireEmber();
 
-          // live ink stains
           if (Math.random() < 0.18) {
             const id = Date.now() + Math.random();
             setInkStains((prev) => [
@@ -343,7 +375,6 @@ export default function App() {
             }, 4200);
           }
 
-          // paper dust
           if (Math.random() < 0.28) {
             const id = Date.now() + Math.random();
             setPaperDust((prev) => [
@@ -421,38 +452,48 @@ export default function App() {
     setTouched((p) => ({ ...p, [field]: true }));
   }
 
-  function validate(showAll = true) {
+  function validateReturnFields() {
     const next = {};
-    const trimmed = message.trim();
-
-    if (!trimmed) next.message = HINTS.message;
-    else if (trimmed.length < 8) next.message = HINTS.messageShort;
-    else if (message.length >= 1200) next.message = HINTS.messageLong;
-
     if (!date) next.date = HINTS.date;
     else if (!isFutureDateTime(date, time || "00:00")) next.date = HINTS.datePast;
-
     if (!time) next.time = HINTS.time;
-
     if (!email.trim()) next.email = HINTS.email;
     else if (!EMAIL_RE.test(email.trim())) next.email = HINTS.emailInvalid;
-
-    if (showAll) {
-      setErrors(next);
-      setTouched({ message: true, date: true, time: true, email: true });
-    }
+    setErrors((p) => ({ ...p, ...next }));
+    setTouched((p) => ({ ...p, date: true, time: true, email: true }));
     return Object.keys(next).length === 0;
   }
 
   function handleSubmit(e) {
     e.preventDefault();
     if (phase !== "writing") return;
-    if (!validate(true)) {
+
+    if (!message.trim() || message.trim().length < 8) {
+      setErrors({ message: HINTS.messageShort });
       setShake(true);
       setTimeout(() => setShake(false), 420);
       return;
     }
 
+    // open the cinematic choice modal
+    setJourneyModal(true);
+  }
+
+  function sealLetter(path) {
+    setJourneyModal(false);
+    setLetterPath(path);
+
+    if (path === "return") {
+      setShowReturnFields(true);
+      // user still needs to fill date/time/email, then click seal again
+      return;
+    }
+
+    // adrift path – seal immediately
+    performSeal(path);
+  }
+
+  function performSeal(path) {
     setFireLevel(2);
     setTimeout(() => setFireLevel(1), 600);
     setTimeout(() => setFireLevel(-1), 1400);
@@ -466,7 +507,31 @@ export default function App() {
     setTimeout(() => {
       setPhase("sealed");
       setPostSealEmbers(true);
+      // TODO: send to backend
+      // path === "return" → scheduled letter
+      // path === "adrift" → anonymous traveler letter
     }, 1180);
+  }
+
+  function handleFinalReturnSeal() {
+    if (!validateReturnFields()) {
+      setShake(true);
+      setTimeout(() => setShake(false), 420);
+      return;
+    }
+    performSeal("return");
+  }
+
+  function handleBottleClick() {
+    if (bottleAnimating || readingMode) return;
+    setBottleAnimating(true);
+
+    setTimeout(() => {
+      const letter = TRAVELER_LETTERS[Math.floor(Math.random() * TRAVELER_LETTERS.length)];
+      setCurrentTravelerLetter(letter);
+      setReadingMode(true);
+      setBottleAnimating(false);
+    }, 1600);
   }
 
   function handleReset() {
@@ -482,6 +547,13 @@ export default function App() {
     setInkStains([]);
     setPaperDust([]);
     setFireEmbers([]);
+    setJourneyModal(false);
+    setLetterPath(null);
+    setShowReturnFields(false);
+    setDisplayName("");
+    setMood("");
+    setReadingMode(false);
+    setCurrentTravelerLetter(null);
   }
 
   useEffect(() => {
@@ -511,8 +583,8 @@ export default function App() {
     fireLevel === 2 ? " fireBright" : fireLevel === 1 ? " fireBoost" : fireLevel === -1 ? " fireSettle" : "";
 
   return (
-    <div className={`stage${shake ? " shake" : ""} breathing`}>
-<audio ref={audioRef} src="/Bg_Music_BoneFire.mp3" preload="auto" />
+    <div className={`stage${shake ? " shake" : ""} breathing${journeyModal || readingMode ? " modalOpen" : ""}`}>
+      <audio ref={audioRef} src="/Bg_Music_BoneFire.mp3" preload="auto" />
       <style>{CSS}</style>
 
       <div className="vignette" aria-hidden="true" />
@@ -525,9 +597,11 @@ export default function App() {
       )}
 
       <div className="emberLayer" ref={layerRef} aria-hidden="true" />
-      <div className="quillCursor" ref={quillRef} aria-hidden="true">
-        <QuillIcon className="quillSvg" />
-      </div>
+      {!journeyModal && !readingMode && (
+        <div className="quillCursor" ref={quillRef} aria-hidden="true">
+          <QuillIcon className="quillSvg" />
+        </div>
+      )}
 
       <div className="ashLayer" aria-hidden="true">
         {ashEmbers.map((a) => (
@@ -575,7 +649,6 @@ export default function App() {
           <div className="stain s5" />
           <div className="bloodStain" aria-hidden="true" />
 
-          {/* live ink stains */}
           {inkStains.map((s) => (
             <div
               key={s.id}
@@ -590,7 +663,6 @@ export default function App() {
             />
           ))}
 
-          {/* paper dust */}
           {paperDust.map((d) => (
             <div
               key={d.id}
@@ -604,15 +676,17 @@ export default function App() {
           ))}
 
           <div className="content">
-            <div className="markRow"><DiamondMark /></div>
+            <div className="markRow">
+              <DiamondMark />
+            </div>
             <div className="hairline" />
 
             <h1 className="heading">
               Leave a letter
               <br />
-              <span className="headingSoft">for the ashen one</span>
+              <span className="headingSoft">for the person waiting</span>
               <br />
-              you will become.
+              beyond tomorrow.
             </h1>
             <p className="subheading">
               The path is long and the fire grows cold.
@@ -633,126 +707,131 @@ export default function App() {
                 <div className="writeArea">
                   <textarea
                     ref={textareaRef}
-                    placeholder="Inscribe your will upon the parchment&hellip;"
+                    placeholder="Leave behind what today cannot carry&hellip;"
                     value={message}
                     onChange={handleMessageChange}
                     onBlur={() => {
                       markTouched("message");
-                      validate(false);
                     }}
                     className={errors.message ? "invalid" : ""}
                     aria-invalid={!!errors.message}
-                    aria-describedby="message-hint"
                     disabled={phase !== "writing"}
                     maxLength={1200}
                   />
                   <QuillIcon className="restingQuill" />
-                  <div className={`hint${errors.message ? " error" : ""}`} id="message-hint">
+                  <div className={`hint${errors.message ? " error" : ""}`}>
                     {errors.message || ""}
                   </div>
                 </div>
 
-                <div className="sectionDivider" aria-hidden="true">
-                  &mdash;&mdash;&mdash; &#9671; &mdash;&mdash;&mdash;
-                </div>
+                {/* Return fields only appear after choosing "Return them to me" */}
+                {showReturnFields && (
+                  <>
+                    <div className="sectionDivider" aria-hidden="true">
+                      &mdash;&mdash;&mdash; &#9671; &mdash;&mdash;&mdash;
+                    </div>
+                    <div className="fieldsRow">
+                      <div className="field">
+                        <div className="fieldLabel">When shall these words find you again?</div>
+                        <div className="fieldInline">
+                          <input
+                            type="date"
+                            className={`lineInput${errors.date ? " invalid" : ""}`}
+                            value={date}
+                            min={minDate}
+                            onChange={(e) => {
+                              setDate(e.target.value);
+                              clearError("date");
+                            }}
+                            onBlur={() => markTouched("date")}
+                            onKeyDown={flare}
+                            disabled={phase !== "writing"}
+                          />
+                          <input
+                            type="time"
+                            className={`lineInput${errors.time ? " invalid" : ""}`}
+                            value={time}
+                            onChange={(e) => {
+                              setTime(e.target.value);
+                              clearError("time");
+                              clearError("date");
+                            }}
+                            onBlur={() => markTouched("time")}
+                            onKeyDown={flare}
+                            disabled={phase !== "writing"}
+                          />
+                        </div>
+                        <div className={`caption${errors.date || errors.time ? " error" : ""}`}>
+                          {errors.date || errors.time || "Choose the day these words should find you."}
+                        </div>
+                      </div>
 
-                <div className="fieldsRow">
-                  <div className="field">
-                    <div className="fieldLabel">When shall these words find you again?</div>
-                    <div className="fieldInline">
-                      <input
-                        type="date"
-                        className={`lineInput${errors.date ? " invalid" : ""}`}
-                        value={date}
-                        min={minDate}
-                        onChange={(e) => {
-                          setDate(e.target.value);
-                          clearError("date");
-                        }}
-                        onBlur={() => markTouched("date")}
-                        onKeyDown={flare}
-                        aria-label="Date"
-                        disabled={phase !== "writing"}
-                      />
-                      <input
-                        type="time"
-                        className={`lineInput${errors.time ? " invalid" : ""}`}
-                        value={time}
-                        onChange={(e) => {
-                          setTime(e.target.value);
-                          clearError("time");
-                          clearError("date");
-                        }}
-                        onBlur={() => markTouched("time")}
-                        onKeyDown={flare}
-                        aria-label="Time"
-                        disabled={phase !== "writing"}
-                      />
+                      <div className="field">
+                        <div className="fieldLabel">Name the place the letter shall seek.</div>
+                        <input
+                          type="email"
+                          className={`lineInput fullWidth${errors.email ? " invalid" : ""}`}
+                          placeholder="you@realm.com"
+                          value={email}
+                          onChange={(e) => {
+                            setEmail(e.target.value);
+                            clearError("email");
+                          }}
+                          onBlur={() => markTouched("email")}
+                          onKeyDown={flare}
+                          disabled={phase !== "writing"}
+                          autoComplete="email"
+                        />
+                        <div className={`caption${errors.email ? " error" : ""}`}>
+                          {errors.email || "This is where your words will return."}
+                        </div>
+                      </div>
                     </div>
-                    <div className={`caption${errors.date || errors.time ? " error" : ""}`}>
-                      {errors.date || errors.time || "Choose the day these words should find you."}
-                    </div>
-                  </div>
-
-                  <div className="field">
-                    <div className="fieldLabel">Name the place the letter shall seek.</div>
-                    <input
-                      type="email"
-                      className={`lineInput fullWidth${errors.email ? " invalid" : ""}`}
-                      placeholder="you@realm.com"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        clearError("email");
-                      }}
-                      onBlur={() => {
-                        markTouched("email");
-                        if (email.trim() && !EMAIL_RE.test(email.trim())) {
-                          setErrors((p) => ({ ...p, email: HINTS.emailInvalid }));
-                        }
-                      }}
-                      onKeyDown={flare}
-                      disabled={phase !== "writing"}
-                      autoComplete="email"
-                    />
-                    <div className={`caption${errors.email ? " error" : ""}`}>
-                      {errors.email || "This is where your words will return."}
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
 
                 <div className="sectionDivider" aria-hidden="true">
                   &mdash;&mdash;&mdash; &#9671; &mdash;&mdash;&mdash;
                 </div>
 
                 <div className="ctaRow">
-                 <button
-  className="sealButton"
-  type="submit"
-  disabled={phase !== "writing"}
-  style={{ pointerEvents: phase === "writing" ? "auto" : "none" }}
->
-                    <span className="ctaEmbers" aria-hidden="true">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <span
-                          key={i}
-                          className="ctaEmber"
-                          style={{ left: `${16 + i * 52}px`, animationDelay: `${i * 130}ms` }}
-                        />
-                      ))}
-                    </span>
-                    <span className="sealStack">
-                      <span className="sealCircle" aria-hidden="true">&#9670;</span>
-                      <span className="sealCaption">Blood Seal</span>
-                      <span className="sealText">
-                        {phase === "folding"
-                          ? "Folding\u2026"
-                          : phase === "sealing"
-                          ? "Sealing\u2026"
-                          : "Entrust to the Flame"}
+                  {showReturnFields ? (
+                    <button
+                      className="sealButton"
+                      type="button"
+                      onClick={handleFinalReturnSeal}
+                      disabled={phase !== "writing"}
+                    >
+                      <span className="sealStack">
+                        <span className="sealCircle">&#9670;</span>
+                        <span className="sealCaption">Traveler's Seal</span>
+                        <span className="sealText">Bind to the appointed hour</span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                  ) : (
+                    <button className="sealButton" type="submit" disabled={phase !== "writing"}>
+                      <span className="ctaEmbers" aria-hidden="true">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <span
+                            key={i}
+                            className="ctaEmber"
+                            style={{ left: `${16 + i * 52}px`, animationDelay: `${i * 130}ms` }}
+                          />
+                        ))}
+                      </span>
+                      <span className="sealStack">
+                        <span className="sealCircle">&#9670;</span>
+                        <span className="sealCaption">Blood Seal</span>
+                        <span className="sealText">
+                          {phase === "folding"
+                            ? "Folding\u2026"
+                            : phase === "sealing"
+                            ? "Sealing\u2026"
+                            : "Entrust to the Flame"}
+                        </span>
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="lockCaption">
@@ -787,11 +866,11 @@ export default function App() {
                   your words.
                 </div>
                 <p className="sealedBody">
-                  The next traveler to read them
-                  <br />
-                  will be you.
+                  {letterPath === "adrift"
+                    ? "They now drift with the smoke, waiting for another traveler."
+                    : "The next traveler to read them will be you."}
                 </p>
-                {formattedDate && (
+                {letterPath === "return" && formattedDate && (
                   <div className="sealedMeta">
                     Sealed until {formattedDate} · returning to {email}
                   </div>
@@ -802,8 +881,89 @@ export default function App() {
               </div>
             </form>
           </div>
-        </section>
+
+          </section>
+
+        {/* Glass bottle – outside parchment so clip-path does not hide it */}
+        <button
+          className={`glassBottle ${bottleAnimating ? "rising" : ""}`}
+          onClick={handleBottleClick}
+          title="A traveler left this by the fire"
+          aria-label="Open a letter left by another traveler"
+          disabled={bottleAnimating || readingMode}
+        >
+          <img
+            src="/GLass_Bottle.png"
+            alt=""
+            className="bottleImg"
+            draggable="false"
+          />
+        </button>
       </div>
+
+      {/* Journey modal */}
+{journeyModal && (
+  <div className="journeyOverlay">
+    <div className="journeyModal">
+      <div className="journeyTitle">Where shall these words journey?</div>
+
+      <div className="journeyOptions">
+        <button className="journeyChoice" onClick={() => sealLetter("return")}>
+          <span className="choiceTitle">Return to Me</span>
+          <span className="choiceDesc">
+            Let these words sleep until the day<br />
+            they are meant to return.
+          </span>
+        </button>
+
+        <button className="journeyChoice" onClick={() => sealLetter("adrift")}>
+          <span className="choiceTitle">Leave By The Fire</span>
+          <span className="choiceDesc">
+            Cast these words into the fire.<br />
+            Another traveler may discover them<br />
+            one quiet night.
+          </span>
+        </button>
+      </div>
+
+      <button className="journeyCancel" onClick={() => setJourneyModal(false)}>
+        The words are not yet ready
+      </button>
+    </div>
+  </div>
+)}
+
+      {/* Reading mode */}
+      {readingMode && currentTravelerLetter && (
+        <div className="readingOverlay">
+          <div className="readingParchment">
+            <div className="rpBurn rpBurn1" aria-hidden="true" />
+            <div className="rpBurn rpBurn2" aria-hidden="true" />
+            <div className="rpCoffee" aria-hidden="true" />
+            <div className="rpWax" aria-hidden="true" />
+            <div className="rpFold rpFoldH" aria-hidden="true" />
+            <div className="rpFold rpFoldV" aria-hidden="true" />
+            <div className="rpCurl" aria-hidden="true" />
+            <div className="rpFade" aria-hidden="true" />
+
+            <div className="readingHeader">A letter found by the fire</div>
+            <div className="readingBody">{currentTravelerLetter.text}</div>
+            <div className="readingMeta">
+              — {currentTravelerLetter.name}
+              {currentTravelerLetter.mood && ` · ${currentTravelerLetter.mood}`}
+            </div>
+            <button
+              className="readingClose"
+              onClick={() => {
+                setReadingMode(false);
+                setCurrentTravelerLetter(null);
+              }}
+            >
+              Return it to the night
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="footerQuote">&#9671; Time remembers what we forget. &#9671;</div>
     </div>
@@ -824,55 +984,9 @@ const CSS = `
   cursor:none;
   font-family:'IBM Plex Mono',monospace;
 }
-
-/* Ensure interactive elements always receive clicks */
-.rightWrap,
-.parchment,
-.letterForm,
-.sealButton,
-.lineInput,
-textarea,
-.writeAnother,
-.field,
-.content {
-  pointer-events: auto !important;
-}
-
-/* Decorative layers must never intercept clicks */
-.emberLayer,
-.quillCursor,
-.vignette,
-.ashLayer,
-.leftScene,
-.fireGlow,
-.armorLight,
-.wallLight,
-.smoke,
-.embers,
-.keyEmbers,
-.dustLayer,
-.owlWrap,
-.shootingStarWrap,
-.leftGradient,
-.grain,
-.parchmentLight,
-.parchmentFireSpill,
-.parchmentBurn,
-.parchmentWrinkles,
-.candleFlicker,
-.fold,
-.curl,
-.stain,
-.bloodStain,
-.liveInkStain,
-.paperDust,
-.riseEmbers {
-  pointer-events: none !important;
-}
-  
-.stage.breathing{
-  animation: breathe 22s ease-in-out infinite;
-}
+.stage.modalOpen{ cursor:auto; }
+.stage.modalOpen .quillCursor{ display:none; }
+.stage.breathing{ animation: breathe 22s ease-in-out infinite; }
 @keyframes breathe{
   0%,100%{ transform:translateY(0); }
   50%{ transform:translateY(-1.8px); }
@@ -1087,7 +1201,7 @@ textarea,
 .rightWrap{
   position:relative; z-index:5;
   min-height:100vh; display:flex; align-items:center; justify-content:center;
-  padding:4vh 3.5vw 4vh calc(46% + 1.5vw);
+  padding:4vh 4vw 4vh calc(42% + 1vw);
   opacity:0; transform:translateY(10px) scale(.985);
   transition:opacity 900ms ease, transform 900ms ease;
 }
@@ -1096,7 +1210,7 @@ textarea,
 .rightWrap::before{
   content:"";
   position:absolute;
-  left:calc(24% - 40px);
+  left:calc(22% - 40px);
   top:6%;
   bottom:6%;
   width:260px;
@@ -1224,7 +1338,6 @@ textarea,
   82%{ opacity:.55; filter:brightness(1.02); }
 }
 
-/* live parchment reactions */
 .liveInkStain{
   position:absolute;
   border-radius:60% 40% 55% 45%;
@@ -1541,10 +1654,428 @@ textarea:disabled{ opacity:.7; }
   100%{ opacity:0; transform:translateY(-180px) scale(.3); }
 }
 
+/* ---------- Glass Bottle (image) ---------- */
+.glassBottle {
+  position: absolute;
+  right: 1.5%;
+  bottom: 10%;
+  width: 120px;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 15;
+  transition: transform 380ms ease, filter 380ms ease;
+  pointer-events: auto;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6));
+}
+
+.glassBottle:hover:not(:disabled) {
+  transform: translateY(-12px) scale(1.06);
+  filter:
+    drop-shadow(0 16px 26px rgba(0, 0, 0, 0.65))
+    drop-shadow(0 0 14px rgba(220, 140, 50, 0.3));
+}
+
+.glassBottle:active:not(:disabled) {
+  transform: translateY(-5px) scale(1.02);
+}
+
+.glassBottle:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.bottleImg {
+  width: 100%;
+  height: auto;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.glassBottle.rising {
+  animation: bottleRise 1.8s ease-in-out forwards;
+  pointer-events: none;
+}
+
+@keyframes bottleRise {
+  0%   { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+  35%  { transform: translateY(-48px) rotate(-14deg) scale(1.08); opacity: 1; }
+  70%  { transform: translateY(-28px) rotate(8deg) scale(1.03); opacity: 0.85; }
+  100% { transform: translateY(-180px) rotate(0deg) scale(0.85); opacity: 0; }
+}
+
+@media (max-width: 980px) {
+  .glassBottle {
+    right: 16px;
+    bottom: 28px;
+    width: 88px;
+  }
+}
+
+/* ---------- Journey Modal ---------- */
+.journeyOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 4, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px) saturate(0.85);
+  animation: overlayIn 500ms ease forwards;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* stronger vignette while modal is open */
+.journeyOverlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 70% 65% at 50% 45%,
+    transparent 30%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+  pointer-events: none;
+}
+
+.journeyModal {
+  position: relative;
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(240, 220, 180, 0.35), transparent 55%),
+    linear-gradient(155deg, #d4b888 0%, #c09a60 45%, #a88050 100%);
+  padding: 44px 48px 36px;
+  max-width: 520px;
+  width: 92%;
+  border-radius: 3px;
+  box-shadow:
+    0 40px 100px rgba(0, 0, 0, 0.75),
+    0 12px 30px rgba(0, 0, 0, 0.4),
+    inset 0 0 60px rgba(255, 255, 255, 0.06);
+  text-align: center;
+  transform-origin: center 20%;
+  animation: parchmentUnfold 780ms cubic-bezier(0.22, 0.8, 0.28, 1) forwards;
+}
+
+@keyframes parchmentUnfold {
+  0% {
+    opacity: 0;
+    transform: translateY(36px) rotateX(-11deg) scale(0.96);
+    filter: brightness(0.92);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-3px) rotateX(1.5deg) scale(1.01);
+    filter: brightness(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg) scale(1);
+    filter: brightness(1);
+  }
+}
+
+.journeyTitle {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px;
+  font-style: italic;
+  color: #2a1c0e;
+  margin-bottom: 32px;
+  letter-spacing: 0.01em;
+}
+
+/* Physical choice cards */
+.journeyChoice {
+  display: block;
+  width: 100%;
+  background:
+    linear-gradient(165deg, rgba(255, 250, 235, 0.25), rgba(40, 22, 10, 0.04));
+  border: 1.5px solid rgba(70, 40, 15, 0.38);
+  border-radius: 2px;
+  padding: 22px 24px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition:
+    transform 280ms ease,
+    box-shadow 280ms ease,
+    border-color 280ms ease,
+    background 280ms ease;
+}
+
+.journeyChoice:hover {
+  transform: translateY(-4px);
+  border-color: rgba(160, 90, 40, 0.55);
+  background:
+    linear-gradient(165deg, rgba(255, 245, 220, 0.35), rgba(60, 30, 10, 0.06));
+  box-shadow:
+    0 14px 28px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(200, 120, 50, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 24px rgba(220, 130, 50, 0.12); /* soft candle reflection */
+}
+
+.journeyChoice:active {
+  transform: translateY(-1px);
+}
+
+.choiceTitle {
+  display: block;
+  font-family: 'Cinzel', serif;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #3a2410;
+  margin-bottom: 9px;
+}
+
+.choiceDesc {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15.5px;
+  color: #5a3a1c;
+  line-height: 1.5;
+}
+
+.journeyCancel {
+  margin-top: 22px;
+  background: none;
+  border: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: #7a4a28;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 200ms ease;
+}
+.journeyCancel:hover {
+  opacity: 1;
+}
+
+/* ---------- Reading mode – handled parchment ---------- */
+.readingOverlay,
+.journeyOverlay {
+  cursor: auto !important;
+}
+.readingOverlay *,
+.journeyOverlay * {
+  cursor: auto;
+}
+.journeyOverlay .journeyChoice,
+.journeyOverlay .journeyCancel,
+.readingOverlay .readingClose {
+  cursor: pointer !important;
+}
+
+.readingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  background: rgba(0, 0, 4, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.readingParchment {
+  position: relative;
+  width: 560px;
+  max-width: 92vw;
+  padding: 48px 46px 42px;
+  background:
+    radial-gradient(90% 70% at 15% 10%, rgba(230, 210, 170, 0.35), transparent 55%),
+    radial-gradient(70% 60% at 90% 90%, rgba(80, 45, 20, 0.28), transparent 60%),
+    linear-gradient(158deg, #d0b480 0%, #bc9860 40%, #a88050 70%, #967048 100%);
+  box-shadow:
+    8px 28px 60px rgba(0, 0, 0, 0.55),
+    -4px 12px 30px rgba(0, 0, 0, 0.35),
+    inset 0 0 80px rgba(255, 255, 255, 0.04);
+  transform: rotate(-1.6deg);
+  overflow: hidden;
+}
+
+.readingParchment::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(50, 32, 12, 0.04) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(90deg, rgba(50, 32, 12, 0.03) 0 1px, transparent 1px 8px);
+  mix-blend-mode: multiply;
+  opacity: 0.7;
+}
+
+.rpBurn {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  filter: blur(4px);
+}
+.rpBurn1 {
+  width: 70px;
+  height: 55px;
+  top: -8px;
+  left: 18%;
+  background: radial-gradient(circle, rgba(40, 18, 6, 0.55), transparent 70%);
+}
+.rpBurn2 {
+  width: 45px;
+  height: 40px;
+  bottom: 12%;
+  right: 8%;
+  background: radial-gradient(circle, rgba(35, 14, 5, 0.45), transparent 70%);
+}
+
+.rpCoffee {
+  position: absolute;
+  width: 78px;
+  height: 78px;
+  top: 22%;
+  right: 14%;
+  border-radius: 50%;
+  border: 3px solid rgba(90, 50, 20, 0.18);
+  box-shadow: inset 0 0 8px rgba(90, 50, 20, 0.08);
+  pointer-events: none;
+  transform: rotate(12deg);
+  opacity: 0.7;
+}
+
+.rpWax {
+  position: absolute;
+  width: 36px;
+  height: 48px;
+  bottom: 18%;
+  left: 10%;
+  background: radial-gradient(ellipse at 40% 30%, rgba(140, 30, 20, 0.35), transparent 70%);
+  border-radius: 40% 50% 55% 45%;
+  filter: blur(2px);
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.rpFold {
+  position: absolute;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.28;
+}
+.rpFoldH {
+  left: 8%;
+  right: 8%;
+  top: 48%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(50, 30, 10, 0.5) 20%, rgba(50, 30, 10, 0.5) 80%, transparent);
+}
+.rpFoldV {
+  top: 10%;
+  bottom: 10%;
+  left: 62%;
+  width: 1.5px;
+  background: linear-gradient(180deg, transparent, rgba(50, 30, 10, 0.45) 15%, rgba(50, 30, 10, 0.45) 85%, transparent);
+}
+
+.rpCurl {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(
+    135deg,
+    transparent 42%,
+    rgba(150, 110, 60, 0.85) 46%,
+    rgba(200, 170, 120, 0.9) 52%,
+    rgba(90, 60, 30, 0.5) 60%,
+    transparent 64%
+  );
+  filter: drop-shadow(-2px -2px 3px rgba(0, 0, 0, 0.35));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rpFade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120px 100px at 0% 0%, rgba(20, 10, 4, 0.2), transparent 70%),
+    radial-gradient(100px 90px at 100% 0%, rgba(20, 10, 4, 0.16), transparent 70%),
+    radial-gradient(110px 100px at 0% 100%, rgba(20, 10, 4, 0.18), transparent 70%);
+}
+
+.readingHeader {
+  position: relative;
+  z-index: 1;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 20px;
+  color: #4a3018;
+  text-align: center;
+  margin-bottom: 26px;
+  opacity: 0.92;
+}
+
+.readingBody {
+  position: relative;
+  z-index: 1;
+  font-family: 'Caveat', serif;
+  font-size: 26px;
+  line-height: 1.55;
+  color: #2a1c0e;
+  min-height: 160px;
+  text-shadow: 0.3px 0.3px 0.6px rgba(38, 24, 12, 0.3);
+}
+
+.readingMeta {
+  position: relative;
+  z-index: 1;
+  margin-top: 30px;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  color: #5a3a1c;
+  text-align: right;
+  opacity: 0.9;
+}
+
+.readingClose {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin: 34px auto 0;
+  background: none;
+  border: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: #7a3a20;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer !important;
+}
+
 .footerQuote{
   position:absolute; left:0; right:0; bottom:16px; z-index:6; text-align:center;
   font-family:'Cormorant Garamond', serif; font-style:italic; font-size:13px; letter-spacing:.04em;
   color:rgba(160,140,110,.4);
+}
+
+/* Ensure interactive elements receive clicks */
+.rightWrap, .parchment, .letterForm, .sealButton, .lineInput, textarea, .writeAnother, .field, .content, .glassBottle, .journeyChoice, .journeyCancel, .readingClose {
+  pointer-events: auto;
 }
 
 @media (max-width:980px){
@@ -1555,10 +2086,11 @@ textarea:disabled{ opacity:.7; }
   .fieldsRow{ grid-template-columns:1fr; }
   .footerQuote{ position:relative; bottom:auto; padding:16px; }
   .vignette{ background:radial-gradient(ellipse 90% 80% at 50% 40%, transparent 35%, rgba(0,0,0,.5) 100%); }
+  .glassBottle{ right:16px; bottom:28px; width:88px; }
 }
 
 :focus-visible{ outline:2px solid rgba(180,80,40,.7); outline-offset:2px; }
-@media (prefers-reduced-motion: reduce){
+@media (prefers-reduced-motion: reduce){ 
   *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
   .stage.breathing{ animation:none; }
 }
