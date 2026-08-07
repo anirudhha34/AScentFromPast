@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 
 /* ---------- deterministic torn-parchment edge generator ---------- */
 function seededRand(i) {
@@ -170,6 +170,75 @@ function NightScene({ fireLevel, fireEmbers, imageSrc, revealed }) {
   );
 }
 
+
+/* ---------------------------- Turnstile CAPTCHA ---------------------------- */
+const Turnstile = forwardRef(function Turnstile({ onVerify, onExpire, onError }, ref) {
+  const containerRef = useRef(null);
+  const widgetId = useRef(null);
+  const cbRef = useRef({ onVerify, onExpire, onError });
+  cbRef.current = { onVerify, onExpire, onError };
+
+  useImperativeHandle(ref, () => ({
+    reset() {
+      if (widgetId.current != null && window.turnstile) {
+        try { window.turnstile.reset(widgetId.current); } catch (_) {}
+      }
+      cbRef.current.onVerify?.(null);
+    },
+  }));
+
+  useEffect(() => {
+    const sitekey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+
+    const render = () => {
+      if (!window.turnstile || !containerRef.current) return;
+      if (widgetId.current != null) {
+        try { window.turnstile.remove(widgetId.current); } catch (_) {}
+        widgetId.current = null;
+      }
+      widgetId.current = window.turnstile.render(containerRef.current, {
+        sitekey,
+        callback: (token) => cbRef.current.onVerify?.(token),
+        "expired-callback": () => {
+          cbRef.current.onExpire?.();
+          cbRef.current.onVerify?.(null);
+        },
+        "error-callback": () => {
+          cbRef.current.onError?.();
+          cbRef.current.onVerify?.(null);
+        },
+        theme: "auto",
+        size: "normal",
+      });
+    };
+
+    if (window.turnstile) {
+      render();
+    } else {
+      const existing = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
+      if (existing) {
+        if (window.turnstile) render();
+        else existing.addEventListener("load", render);
+      } else {
+        const s = document.createElement("script");
+        s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+        s.async = true;
+        s.onload = render;
+        document.body.appendChild(s);
+      }
+    }
+
+    return () => {
+      if (widgetId.current != null && window.turnstile) {
+        try { window.turnstile.remove(widgetId.current); } catch (_) {}
+        widgetId.current = null;
+      }
+    };
+  }, []);
+
+  return <div ref={containerRef} className="turnstileWrap" />;
+});
+
 /* ---------------------------- validation helpers ---------------------------- */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
 
@@ -241,6 +310,9 @@ export default function App() {
   const [currentTravelerLetter, setCurrentTravelerLetter] = useState(null);
   const [bottleAnimating, setBottleAnimating] = useState(false);
   const [showReturnFields, setShowReturnFields] = useState(false);
+  const [showCaptchaModal, setShowCaptchaModal] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState(null);
+  const turnstileRef = useRef(null);
 
   const flareTimeout = useRef(null);
   const settleTimeout = useRef(null);
@@ -256,6 +328,27 @@ export default function App() {
   const textareaRef = useRef(null);
   const inkSettleTimeout = useRef(null);
   const audioRef = useRef(null);
+  const sealTimeouts = useRef([]);
+  const effectTimeouts = useRef([]);
+
+  function scheduleSealTimeout(fn, ms) {
+    const id = setTimeout(fn, ms);
+    sealTimeouts.current.push(id);
+    return id;
+  }
+  function clearSealTimeouts() {
+    sealTimeouts.current.forEach(clearTimeout);
+    sealTimeouts.current = [];
+  }
+  function scheduleEffectTimeout(fn, ms) {
+    const id = setTimeout(fn, ms);
+    effectTimeouts.current.push(id);
+    return id;
+  }
+  function clearEffectTimeouts() {
+    effectTimeouts.current.forEach(clearTimeout);
+    effectTimeouts.current = [];
+  }
 
   const wordCount = message.trim().length ? message.trim().split(/\s+/).length : 0;
   const charCount = message.length;
@@ -329,7 +422,7 @@ export default function App() {
     const left = 49 + Math.random() * 9;
     const drift = (Math.random() - 0.5) * 28;
     setFireEmbers((prev) => [...prev.slice(-24), { id, left, drift }]);
-    setTimeout(() => {
+    scheduleEffectTimeout(() => {
       setFireEmbers((prev) => prev.filter((em) => em.id !== id));
     }, 1900);
   }, []);
@@ -343,6 +436,7 @@ export default function App() {
   const handleMessageChange = useCallback(
     (e) => {
       const nextVal = e.target.value.slice(0, 1200);
+      const delta = nextVal.length - message.length;
 
       if (textareaRef.current) {
         textareaRef.current.classList.add("justTyped");
@@ -352,66 +446,64 @@ export default function App() {
         }, 260);
       }
 
-      setMessage((prevMsg) => {
-        const delta = nextVal.length - prevMsg.length;
+      // Side effects outside the setState updater (StrictMode-safe)
+      if (delta > 0) {
+        spawnFireEmber();
 
-        if (delta > 0) {
-          spawnFireEmber();
-
-          if (Math.random() < 0.18) {
-            const id = Date.now() + Math.random();
-            setInkStains((prev) => [
-              ...prev.slice(-6),
-              {
-                id,
-                left: 12 + Math.random() * 76,
-                top: 18 + Math.random() * 55,
-                size: 4 + Math.random() * 9,
-                opacity: 0.12 + Math.random() * 0.18,
-              },
-            ]);
-            setTimeout(() => {
-              setInkStains((prev) => prev.filter((s) => s.id !== id));
-            }, 4200);
-          }
-
-          if (Math.random() < 0.28) {
-            const id = Date.now() + Math.random();
-            setPaperDust((prev) => [
-              ...prev.slice(-10),
-              {
-                id,
-                left: 8 + Math.random() * 84,
-                top: 12 + Math.random() * 70,
-                delay: Math.random() * 0.4,
-              },
-            ]);
-            setTimeout(() => {
-              setPaperDust((prev) => prev.filter((d) => d.id !== id));
-            }, 2600);
-          }
-
-          streakRef.current += delta;
-          setFireLevel((lvl) => (lvl === 2 ? 2 : 1));
-
-          if (streakRef.current >= 5) {
-            streakRef.current = 0;
-            setFireLevel(2);
-            if (brightTimeout.current) clearTimeout(brightTimeout.current);
-            brightTimeout.current = setTimeout(() => setFireLevel(1), 700);
-          }
-
-          if (settleTimeout.current) clearTimeout(settleTimeout.current);
-          settleTimeout.current = setTimeout(() => setFireLevel(0), 500);
-        } else if (delta < 0) {
-          streakRef.current = 0;
-          setFireLevel(-1);
-          if (brightTimeout.current) clearTimeout(brightTimeout.current);
-          if (settleTimeout.current) clearTimeout(settleTimeout.current);
-          settleTimeout.current = setTimeout(() => setFireLevel(0), 550);
+        if (Math.random() < 0.18) {
+          const id = Date.now() + Math.random();
+          setInkStains((prev) => [
+            ...prev.slice(-6),
+            {
+              id,
+              left: 12 + Math.random() * 76,
+              top: 18 + Math.random() * 55,
+              size: 4 + Math.random() * 9,
+              opacity: 0.12 + Math.random() * 0.18,
+            },
+          ]);
+          scheduleEffectTimeout(() => {
+            setInkStains((prev) => prev.filter((s) => s.id !== id));
+          }, 4200);
         }
-        return nextVal;
-      });
+
+        if (Math.random() < 0.28) {
+          const id = Date.now() + Math.random();
+          setPaperDust((prev) => [
+            ...prev.slice(-10),
+            {
+              id,
+              left: 8 + Math.random() * 84,
+              top: 12 + Math.random() * 70,
+              delay: Math.random() * 0.4,
+            },
+          ]);
+          scheduleEffectTimeout(() => {
+            setPaperDust((prev) => prev.filter((d) => d.id !== id));
+          }, 2600);
+        }
+
+        streakRef.current += delta;
+        setFireLevel((lvl) => (lvl === 2 ? 2 : 1));
+
+        if (streakRef.current >= 5) {
+          streakRef.current = 0;
+          setFireLevel(2);
+          if (brightTimeout.current) clearTimeout(brightTimeout.current);
+          brightTimeout.current = setTimeout(() => setFireLevel(1), 700);
+        }
+
+        if (settleTimeout.current) clearTimeout(settleTimeout.current);
+        settleTimeout.current = setTimeout(() => setFireLevel(0), 500);
+      } else if (delta < 0) {
+        streakRef.current = 0;
+        setFireLevel(-1);
+        if (brightTimeout.current) clearTimeout(brightTimeout.current);
+        if (settleTimeout.current) clearTimeout(settleTimeout.current);
+        settleTimeout.current = setTimeout(() => setFireLevel(0), 550);
+      }
+
+      setMessage(nextVal);
 
       if (touched.message) {
         setErrors((p) => {
@@ -426,7 +518,7 @@ export default function App() {
         clearError("message");
       }
     },
-    [spawnFireEmber, touched.message]
+    [spawnFireEmber, touched.message, message]
   );
 
   useEffect(
@@ -435,6 +527,8 @@ export default function App() {
       settleTimeout.current && clearTimeout(settleTimeout.current);
       brightTimeout.current && clearTimeout(brightTimeout.current);
       inkSettleTimeout.current && clearTimeout(inkSettleTimeout.current);
+      clearSealTimeouts();
+      clearEffectTimeouts();
     },
     []
   );
@@ -482,34 +576,60 @@ export default function App() {
   function sealLetter(path) {
     setJourneyModal(false);
     setLetterPath(path);
+    setTurnstileToken(null);
+    setShowCaptchaModal(false);
 
     if (path === "return") {
       setShowReturnFields(true);
-      // user still needs to fill date/time/email, then click seal again
       return;
     }
 
-    // adrift path – seal immediately
-    performSeal(path);
+    // adrift path – no extra fields; user clicks seal then sees captcha gate
+    setShowReturnFields(false);
   }
 
-  function performSeal(path) {
+  async function performSeal(path) {
+    clearSealTimeouts(); // cancel any in-flight seal sequence
+
     setFireLevel(2);
-    setTimeout(() => setFireLevel(1), 600);
-    setTimeout(() => setFireLevel(-1), 1400);
+    scheduleSealTimeout(() => setFireLevel(1), 600);
+    scheduleSealTimeout(() => setFireLevel(-1), 1400);
 
     setPhase("folding");
-    setTimeout(() => setPhase("sealing"), 520);
-    setTimeout(() => {
+    scheduleSealTimeout(() => setPhase("sealing"), 520);
+    scheduleSealTimeout(() => {
       setShake(true);
-      setTimeout(() => setShake(false), 420);
+      scheduleSealTimeout(() => setShake(false), 420);
     }, 900);
-    setTimeout(() => {
-      setPhase("sealed");
-      setPostSealEmbers(true);
-      // TODO: send to backend
-      // path === "return" → scheduled letter
-      // path === "adrift" → anonymous traveler letter
+
+    scheduleSealTimeout(async () => {
+      try {
+        // Uncomment when backend is ready:
+        // const res = await fetch("/api/letters", {
+        //   method: "POST",
+        //   headers: { "Content-Type": "application/json" },
+        //   body: JSON.stringify({
+        //     message,
+        //     path,
+        //     date: path === "return" ? date : undefined,
+        //     time: path === "return" ? time : undefined,
+        //     email: path === "return" ? email : undefined,
+        //     turnstileToken,
+        //   }),
+        // });
+        // if (!res.ok) throw new Error("Seal failed");
+
+        setPhase("sealed");
+        setPostSealEmbers(true);
+      } catch (err) {
+        // Token rejected or network error — reset captcha so user can retry
+        turnstileRef.current?.reset();
+        setTurnstileToken(null);
+        setPhase("writing");
+        setFireLevel(0);
+        setShake(true);
+        scheduleSealTimeout(() => setShake(false), 420);
+      }
     }, 1180);
   }
 
@@ -519,7 +639,19 @@ export default function App() {
       setTimeout(() => setShake(false), 420);
       return;
     }
-    performSeal("return");
+    setTurnstileToken(null);
+    setShowCaptchaModal(true);
+  }
+
+  function handleFinalAdriftSeal() {
+    setTurnstileToken(null);
+    setShowCaptchaModal(true);
+  }
+
+  function handleCaptchaConfirm() {
+    if (!turnstileToken) return;
+    setShowCaptchaModal(false);
+    performSeal(letterPath || "adrift");
   }
 
   function handleBottleClick() {
@@ -535,6 +667,8 @@ export default function App() {
   }
 
   function handleReset() {
+    clearSealTimeouts();
+    clearEffectTimeouts();
     setMessage("");
     setDate("");
     setTime("12:00");
@@ -550,6 +684,8 @@ export default function App() {
     setJourneyModal(false);
     setLetterPath(null);
     setShowReturnFields(false);
+    setShowCaptchaModal(false);
+    setTurnstileToken(null);
     setDisplayName("");
     setMood("");
     setReadingMode(false);
@@ -583,7 +719,7 @@ export default function App() {
     fireLevel === 2 ? " fireBright" : fireLevel === 1 ? " fireBoost" : fireLevel === -1 ? " fireSettle" : "";
 
   return (
-    <div className={`stage${shake ? " shake" : ""} breathing${journeyModal || readingMode ? " modalOpen" : ""}`}>
+    <div className={`stage${shake ? " shake" : ""} breathing${journeyModal || readingMode || showCaptchaModal ? " modalOpen" : ""}`}>
       <audio ref={audioRef} src="/Bg_Music_BoneFire.mp3" preload="auto" />
       <style>{CSS}</style>
 
@@ -597,13 +733,13 @@ export default function App() {
       )}
 
       <div className="emberLayer" ref={layerRef} aria-hidden="true" />
-      {!journeyModal && !readingMode && (
+      {!journeyModal && !readingMode && !showCaptchaModal && (
         <div className="quillCursor" ref={quillRef} aria-hidden="true">
           <QuillIcon className="quillSvg" />
         </div>
       )}
 
-      <div className="ashLayer" aria-hidden="true">
+      <div className={`ashLayer${journeyModal || readingMode || showCaptchaModal ? " paused" : ""}`} aria-hidden="true">
         {ashEmbers.map((a) => (
           <span
             key={a.id}
@@ -719,12 +855,12 @@ export default function App() {
                     maxLength={1200}
                   />
                   <QuillIcon className="restingQuill" />
-                  <div className={`hint${errors.message ? " error" : ""}`}>
+                  <div className={`hint${errors.message ? " error" : ""}`} aria-live="polite">
                     {errors.message || ""}
                   </div>
                 </div>
 
-                {/* Return fields only appear after choosing "Return them to me" */}
+                {/* Return fields only appear after choosing "Return to Me" */}
                 {showReturnFields && (
                   <>
                     <div className="sectionDivider" aria-hidden="true">
@@ -740,28 +876,28 @@ export default function App() {
                             value={date}
                             min={minDate}
                             onChange={(e) => {
-                              setDate(e.target.value);
+                              // ignore empty events browsers fire when opening the picker
+                              if (e.target.value) setDate(e.target.value);
                               clearError("date");
                             }}
                             onBlur={() => markTouched("date")}
-                            onKeyDown={flare}
                             disabled={phase !== "writing"}
                           />
                           <input
                             type="time"
                             className={`lineInput${errors.time ? " invalid" : ""}`}
-                            value={time}
+                            value={time || "12:00"}
                             onChange={(e) => {
-                              setTime(e.target.value);
+                              // browsers often emit "" when the clock UI opens — don't wipe state
+                              if (e.target.value) setTime(e.target.value);
                               clearError("time");
                               clearError("date");
                             }}
                             onBlur={() => markTouched("time")}
-                            onKeyDown={flare}
                             disabled={phase !== "writing"}
                           />
                         </div>
-                        <div className={`caption${errors.date || errors.time ? " error" : ""}`}>
+                        <div className={`caption${errors.date || errors.time ? " error" : ""}`} aria-live="polite">
                           {errors.date || errors.time || "Choose the day these words should find you."}
                         </div>
                       </div>
@@ -782,7 +918,7 @@ export default function App() {
                           disabled={phase !== "writing"}
                           autoComplete="email"
                         />
-                        <div className={`caption${errors.email ? " error" : ""}`}>
+                        <div className={`caption${errors.email ? " error" : ""}`} aria-live="polite">
                           {errors.email || "This is where your words will return."}
                         </div>
                       </div>
@@ -808,6 +944,19 @@ export default function App() {
                         <span className="sealText">Bind to the appointed hour</span>
                       </span>
                     </button>
+                  ) : letterPath === "adrift" ? (
+                    <button
+                      className="sealButton"
+                      type="button"
+                      onClick={handleFinalAdriftSeal}
+                      disabled={phase !== "writing"}
+                    >
+                      <span className="sealStack">
+                        <span className="sealCircle">&#9670;</span>
+                        <span className="sealCaption">Blood Seal</span>
+                        <span className="sealText">Cast into the fire</span>
+                      </span>
+                    </button>
                   ) : (
                     <button className="sealButton" type="submit" disabled={phase !== "writing"}>
                       <span className="ctaEmbers" aria-hidden="true">
@@ -821,7 +970,7 @@ export default function App() {
                       </span>
                       <span className="sealStack">
                         <span className="sealCircle">&#9670;</span>
-                        <span className="sealCaption">Blood Seal</span>
+                        <span className="sealCaption">Traveler's Seal</span>
                         <span className="sealText">
                           {phase === "folding"
                             ? "Folding\u2026"
@@ -965,6 +1114,46 @@ export default function App() {
         </div>
       )}
 
+
+      {/* Captcha gate – final step before sealing */}
+      {showCaptchaModal && (
+        <div className="captchaOverlay">
+          <div className="captchaModal">
+            <div className="captchaTitle">Before the letter leaves your hands…</div>
+            <p className="captchaBody">
+              Prove you are no hollow thing,<br />
+              and the fire will accept your words.
+            </p>
+            <div className="turnstileRow">
+              <Turnstile
+                ref={turnstileRef}
+                onVerify={setTurnstileToken}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
+            <button
+              className="captchaSealBtn"
+              type="button"
+              onClick={handleCaptchaConfirm}
+              disabled={!turnstileToken}
+            >
+              Seal the Letter
+            </button>
+            <button
+              className="captchaCancel"
+              type="button"
+              onClick={() => {
+                setShowCaptchaModal(false);
+                setTurnstileToken(null);
+              }}
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="footerQuote">&#9671; Time remembers what we forget. &#9671;</div>
     </div>
   );
@@ -986,6 +1175,18 @@ const CSS = `
 }
 .stage.modalOpen{ cursor:auto; }
 .stage.modalOpen .quillCursor{ display:none; }
+.stage.modalOpen .ashLayer,
+.stage.modalOpen .embers,
+.stage.modalOpen .dustLayer,
+.stage.modalOpen .smoke,
+.stage.modalOpen .keyEmbers,
+.stage.modalOpen .shootingStarWrap {
+  animation-play-state: paused;
+}
+.ashLayer.paused,
+.ashLayer.paused * {
+  animation-play-state: paused !important;
+}
 .stage.breathing{ animation: breathe 22s ease-in-out infinite; }
 @keyframes breathe{
   0%,100%{ transform:translateY(0); }
@@ -1431,7 +1632,7 @@ const CSS = `
   pointer-events:none;
 }
 textarea{
-  width:100%; height:220px; resize:none; outline:none; border:none; border-radius:0;
+  width:100%; height:320px; resize:none; outline:none; border:none; border-radius:0;
   background:transparent;
   background-image:repeating-linear-gradient(transparent, transparent 33px, rgba(45,28,10,.28) 34px);
   color:#26180c; font-family:'Caveat', 'Cormorant Garamond', serif; font-weight:600; font-size:26px; line-height:34px;
@@ -1512,10 +1713,31 @@ textarea:disabled{ opacity:.7; }
 }
 .caption.error{ color:#9a2418; opacity:1; }
 .hint, .caption{ min-height:13px; }
+.hint, .caption{ /* screen readers hear validation as it appears */ }
 
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
 
 .ctaRow{ display:flex; justify-content:center; margin-top:2px; margin-bottom:10px; }
+
+.turnstileRow{
+  display:flex;
+  justify-content:center;
+  margin:16px 0 8px;
+}
+.turnstileWrap{
+  transform:scale(0.92);
+  transform-origin:center;
+  filter:sepia(0.12) brightness(0.96);
+}
+.adriftHint{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:15px;
+  color:#4a3018;
+  text-align:center;
+  margin:0 0 4px;
+  opacity:0.9;
+}
 
 .sealButton{
   position:relative; width:240px; height:110px; border-radius:10px;
@@ -1867,7 +2089,8 @@ textarea:disabled{ opacity:.7; }
 
 /* ---------- Reading mode – handled parchment ---------- */
 .readingOverlay,
-.journeyOverlay {
+.journeyOverlay,
+.captchaOverlay {
   cursor: auto !important;
 }
 .readingOverlay *,
@@ -2066,6 +2289,100 @@ textarea:disabled{ opacity:.7; }
   text-underline-offset: 3px;
   cursor: pointer !important;
 }
+
+
+/* ---------- Captcha gate modal ---------- */
+.captchaOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  background: rgba(0, 0, 4, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(5px) saturate(0.85);
+  animation: overlayIn 400ms ease forwards;
+  cursor: auto !important;
+}
+.captchaOverlay * { cursor: auto; }
+.captchaOverlay .captchaSealBtn,
+.captchaOverlay .captchaCancel { cursor: pointer !important; }
+
+.captchaModal {
+  position: relative;
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(240, 220, 180, 0.32), transparent 55%),
+    linear-gradient(155deg, #d4b888 0%, #c09a60 45%, #a88050 100%);
+  padding: 36px 40px 28px;
+  max-width: 420px;
+  width: 90%;
+  border-radius: 3px;
+  box-shadow:
+    0 36px 90px rgba(0, 0, 0, 0.7),
+    0 10px 24px rgba(0, 0, 0, 0.4),
+    inset 0 0 50px rgba(255, 255, 255, 0.05);
+  text-align: center;
+  transform-origin: center 20%;
+  animation: parchmentUnfold 700ms cubic-bezier(0.22, 0.8, 0.28, 1) forwards;
+}
+
+.captchaTitle {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-style: italic;
+  color: #2a1c0e;
+  margin-bottom: 10px;
+}
+
+.captchaBody {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #5a3a1c;
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.captchaSealBtn {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1.5px solid #5a3018;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #2a160c, #100804);
+  color: #c0a878;
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0,0,0,.45);
+  transition: box-shadow 220ms ease, border-color 220ms ease, opacity 200ms ease;
+}
+.captchaSealBtn:hover:not(:disabled) {
+  border-color: #902818;
+  box-shadow: 0 0 24px rgba(180, 50, 25, 0.4), 0 6px 16px rgba(0,0,0,.45);
+}
+.captchaSealBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.captchaCancel {
+  display: block;
+  margin: 14px auto 0;
+  background: none;
+  border: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: #7a4a28;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.captchaCancel:hover { opacity: 1; }
 
 .footerQuote{
   position:absolute; left:0; right:0; bottom:16px; z-index:6; text-align:center;
