@@ -72,11 +72,12 @@ function CandleIcon({ lit }) {
 }
 
 /* ---------------------------- left scene ---------------------------- */
-function NightScene({ fireLevel, fireEmbers, imageSrc, revealed }) {
+function NightScene({ fireLevel, fireEmbers, imageSrc, posterSrc, revealed }) {
   const glowClass =
     fireLevel === 2 ? " bright" : fireLevel === 1 ? " boost" : fireLevel === -1 ? " settle" : "";
 
-  const [imgFailed, setImgFailed] = useState(false);
+  // "video" → try <video>; "image" → static poster; "none" → CSS fallback
+  const [mediaMode, setMediaMode] = useState("video");
 
   const dust = useMemo(
     () =>
@@ -91,20 +92,31 @@ function NightScene({ fireLevel, fireEmbers, imageSrc, revealed }) {
 
   return (
     <div className={`leftScene breathe${revealed ? " revealed" : ""}`} aria-hidden="true">
-      {!imgFailed ? (
+      {mediaMode === "video" && (
         <video
+          key={imageSrc}
           className="knightImg"
           autoPlay
           loop
           muted
           playsInline
           preload="auto"
-          onError={() => setImgFailed(true)}
+          poster={posterSrc || undefined}
+          onError={() => setMediaMode(posterSrc ? "image" : "none")}
         >
-          <source src={imageSrc} type="video/mp4" />
+          {/* Omit type so the browser sniffs the real container (.mov / .mp4) */}
+          <source src={imageSrc} />
         </video>
-      ) : (
-        <div className="knightFallback" />
+      )}
+      {mediaMode === "image" && posterSrc && (
+        <img className="knightImg" src={posterSrc} alt="" draggable={false} />
+      )}
+      {mediaMode === "none" && (
+        <div
+          className="knightFallback"
+          onClick={() => setMediaMode("video")}
+          title="Retry video"
+        />
       )}
 
       <div className={`fireGlow${glowClass}`} />
@@ -341,6 +353,8 @@ function pickEmptyBottleMessage() {
 
 /* ---------------------------- app ---------------------------- */
 const KNIGHT_IMAGE_SRC = "/Knight_Resting.mov";
+// Optional still used if the video fails to load (put file in /public)
+const KNIGHT_POSTER_SRC = "/New_Knight.jpg";
 
 export default function App() {
   const [loadStage, setLoadStage] = useState(0);
@@ -361,7 +375,6 @@ export default function App() {
   // New dual-path states
   const [journeyModal, setJourneyModal] = useState(false);
   const [letterPath, setLetterPath] = useState(null); // "return" | "adrift"
-  const [displayName, setDisplayName] = useState("");
   const [readingMode, setReadingMode] = useState(false);
   const [currentTravelerLetter, setCurrentTravelerLetter] = useState(null);
   const [bottleAnimating, setBottleAnimating] = useState(false);
@@ -399,7 +412,10 @@ export default function App() {
     sealTimeouts.current = [];
   }
   function scheduleEffectTimeout(fn, ms) {
-    const id = setTimeout(fn, ms);
+    const id = setTimeout(() => {
+      effectTimeouts.current = effectTimeouts.current.filter((x) => x !== id);
+      fn();
+    }, ms);
     effectTimeouts.current.push(id);
     return id;
   }
@@ -514,7 +530,9 @@ export default function App() {
 
       // Side effects outside the setState updater (StrictMode-safe)
       if (delta > 0) {
-        spawnFireEmber();
+        // Scale ember count with input size (typing 1 vs paste 500)
+        const emberBursts = Math.min(6, 1 + Math.floor(delta / 40));
+        for (let i = 0; i < emberBursts; i++) spawnFireEmber();
 
         if (Math.random() < 0.18) {
           const id = Date.now() + Math.random();
@@ -613,16 +631,10 @@ export default function App() {
   }
 
   function validateReturnFields() {
-    // Prefer live DOM values — native pickers can desync from React state briefly
-    const liveDate = dateInputRef.current?.value || date;
-    const liveTime = timeInputRef.current?.value || time;
-    if (liveDate && liveDate !== date) setDate(liveDate);
-    if (liveTime && liveTime !== time) setTime(liveTime);
-
     const next = {};
-    if (!liveDate) next.date = HINTS.date;
-    else if (!isFutureDateTime(liveDate, liveTime || "00:00")) next.date = HINTS.datePast;
-    if (!liveTime) next.time = HINTS.time;
+    if (!date) next.date = HINTS.date;
+    else if (!isFutureDateTime(date, time || "00:00")) next.date = HINTS.datePast;
+    // time defaults to "12:00" and is never cleared — only validate format/future via date check
     if (!email.trim()) next.email = HINTS.email;
     else if (!EMAIL_RE.test(email.trim())) next.email = HINTS.emailInvalid;
     setErrors((p) => ({ ...p, ...next }));
@@ -686,9 +698,7 @@ export default function App() {
         // Shared endpoint — type discriminates SELF vs TRAVELER
         let body;
         if (path === "return") {
-          const liveDate = dateInputRef.current?.value || date;
-          const liveTime = timeInputRef.current?.value || time;
-          const scheduledAt = toDeliverAt(liveDate, liveTime);
+          const scheduledAt = toDeliverAt(date, time);
           if (!scheduledAt) throw new Error("invalid_deliver_at");
           body = {
             type: "SELF",
@@ -702,12 +712,8 @@ export default function App() {
             type: "TRAVELER",
             message: message.trim(),
             turnstileToken: token,
-            // optional fields your API may ignore for now
-            displayName: (displayName || "").trim() || "Anonymous Traveler",
           };
         }
-
-        console.log("[seal] POST", LETTERS_URL, body);
 
         const res = await fetch(LETTERS_URL, {
           method: "POST",
@@ -715,7 +721,6 @@ export default function App() {
           body: JSON.stringify(body),
         });
 
-        // API returns 403 when Turnstile verification fails
         if (res.status === 403) {
           throw new Error("captcha_failed");
         }
@@ -724,13 +729,9 @@ export default function App() {
           throw new Error(data.error || `seal_failed_${res.status}`);
         }
 
-        const data = await res.json().catch(() => ({}));
-        console.log("[seal] success", data);
-
         setPhase("sealed");
         setPostSealEmbers(true);
       } catch (err) {
-        console.error("[seal] failed", err);
         // Token rejected or network error — reset captcha so user can retry
         turnstileRef.current?.reset();
         setTurnstileToken(null);
@@ -769,13 +770,15 @@ export default function App() {
     if (bottleAnimating || readingMode) return;
     setBottleAnimating(true);
 
-    await new Promise((r) => setTimeout(r, 1600));
-
     try {
-      const res = await fetch(TRAVELER_RANDOM_URL);
+      // Run animation and network in parallel — same visual pacing, less wait
+      const [, res] = await Promise.all([
+        new Promise((r) => setTimeout(r, 1600)),
+        fetch(TRAVELER_RANDOM_URL),
+      ]);
+
       if (res.status === 404) {
-        const fallback = pickEmptyBottleMessage();
-        setCurrentTravelerLetter(fallback);
+        setCurrentTravelerLetter(pickEmptyBottleMessage());
         setReadingMode(true);
         return;
       }
@@ -789,10 +792,8 @@ export default function App() {
         name: letter.displayName || letter.name || "Anonymous Traveler",
       });
       setReadingMode(true);
-    } catch (err) {
-      console.error("[bottle] fetch failed", err);
-      const fallback = pickEmptyBottleMessage();
-      setCurrentTravelerLetter(fallback);
+    } catch {
+      setCurrentTravelerLetter(pickEmptyBottleMessage());
       setReadingMode(true);
     } finally {
       setBottleAnimating(false);
@@ -800,8 +801,6 @@ export default function App() {
   }
 
   function handleReset() {
-    console.trace("RESET CALLED");
-    console.log("[reset] phase at time of reset:", phase);
     clearSealTimeouts();
     clearEffectTimeouts();
     setMessage("");
@@ -816,12 +815,12 @@ export default function App() {
     setInkStains([]);
     setPaperDust([]);
     setFireEmbers([]);
+    setBottleAnimating(false);
     setJourneyModal(false);
     setLetterPath(null);
     setShowReturnFields(false);
     setShowCaptchaModal(false);
     setTurnstileToken(null);
-    setDisplayName("");
     setReadingMode(false);
     setCurrentTravelerLetter(null);
   }
@@ -844,10 +843,10 @@ export default function App() {
       })
     : "";
 
-  const minDate = useMemo(() => {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
-  }, []);
+    const [minDate, setMinDate] = useState(() => new Date().toISOString().slice(0, 10));
+  function refreshMinDate() {
+    setMinDate(new Date().toISOString().slice(0, 10));
+  }
 
   const parchmentFireClass =
     fireLevel === 2 ? " fireBright" : fireLevel === 1 ? " fireBoost" : fireLevel === -1 ? " fireSettle" : "";
@@ -897,6 +896,7 @@ export default function App() {
         fireLevel={fireLevel}
         fireEmbers={fireEmbers}
         imageSrc={KNIGHT_IMAGE_SRC}
+        posterSrc={KNIGHT_POSTER_SRC}
         revealed={loadStage >= 2}
       />
 
@@ -1028,7 +1028,10 @@ export default function App() {
                               markTouched("date");
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            onFocus={(e) => e.stopPropagation()}
+                            onFocus={(e) => {
+                              e.stopPropagation();
+                              refreshMinDate();
+                            }}
                             disabled={phase !== "writing"}
                           />
                           <input
@@ -1152,6 +1155,17 @@ export default function App() {
                 </div>
               )}
 
+              {(phase === "folding" || phase === "sealing") && (
+                <div className="sealingStatus" role="status" aria-live="polite">
+                  <span className="sealingPulse" aria-hidden="true" />
+                  <p className="sealingText">
+                    {phase === "folding"
+                      ? "Folding the parchment…"
+                      : "The fire is accepting your words…"}
+                  </p>
+                </div>
+              )}
+
               <div className={`sealedOverlay${phase === "sealed" ? " show" : ""}`}>
                 {(phase === "sealed" || postSealEmbers) && (
                   <div className="riseEmbers" aria-hidden="true">
@@ -1182,14 +1196,7 @@ export default function App() {
                     Sealed until {formattedDate} · returning to {email}
                   </div>
                 )}
-                <button
-                  type="button"
-                  className="writeAnother"
-                  onClick={(e) => {
-                    console.log("[reset] clicked element:", e.target, "at", e.clientX, e.clientY);
-                    handleReset();
-                  }}
-                >
+                <button type="button" className="writeAnother" onClick={handleReset}>
                   Inscribe another letter
                 </button>
               </div>
@@ -1843,7 +1850,7 @@ textarea::placeholder{
   font-size:18px;
   text-shadow:none;
 }
-textarea:focus{ filter:brightness(1.02); }
+textarea:focus{ outline:none; filter:brightness(1.03); }
 textarea.invalid{ animation:shake 320ms ease; }
 textarea:disabled{ opacity:.7; }
 .restingQuill{ position:absolute; right:-6px; bottom:-8px; width:22px; height:50px; opacity:.85; transform:rotate(18deg); pointer-events:none; }
@@ -1878,8 +1885,9 @@ textarea:disabled{ opacity:.7; }
 .lineInput.fullWidth{ width:100%; }
 .lineInput::placeholder{ color:rgba(45,28,12,.4); font-style:italic; font-weight:500; }
 .lineInput:focus{
+  outline:none;
   border-color:#7a3a1c;
-  box-shadow:0 1.5px 0 0 #7a3a1c;
+  box-shadow:0 1.5px 0 0 #7a3a1c, 0 0 10px rgba(180,70,25,0.12);
   color:#1e1208;
 }
 .lineInput.invalid{ border-color:#9a2418; animation:shake 320ms ease; }
@@ -1900,7 +1908,6 @@ textarea:disabled{ opacity:.7; }
 }
 .caption.error{ color:#9a2418; opacity:1; }
 .hint, .caption{ min-height:13px; }
-.hint, .caption{ /* screen readers hear validation as it appears */ }
 
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
 
@@ -1915,15 +1922,6 @@ textarea:disabled{ opacity:.7; }
   transform:scale(0.92);
   transform-origin:center;
   filter:sepia(0.12) brightness(0.96);
-}
-.adriftHint{
-  font-family:'Cormorant Garamond',serif;
-  font-style:italic;
-  font-size:15px;
-  color:#4a3018;
-  text-align:center;
-  margin:0 0 4px;
-  opacity:0.9;
 }
 
 .sealButton{
@@ -2016,6 +2014,47 @@ textarea:disabled{ opacity:.7; }
   0%{ transform:translateY(-90px) scale(.6); opacity:0; }
   60%{ opacity:1; }
   100%{ transform:translateY(0) scale(1); opacity:1; }
+}
+
+.sealingStatus{
+  position:absolute;
+  inset:0;
+  z-index:5;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  pointer-events:none;
+  animation:sealingIn 480ms ease forwards;
+}
+@keyframes sealingIn{
+  from{ opacity:0; transform:translateY(8px); }
+  to{ opacity:1; transform:translateY(0); }
+}
+.sealingPulse{
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  background:radial-gradient(circle at 40% 35%, #e8a050, #8a2810 70%);
+  box-shadow:
+    0 0 14px rgba(200, 80, 30, 0.65),
+    0 0 28px rgba(160, 50, 20, 0.35);
+  animation:sealingPulse 1.4s ease-in-out infinite;
+}
+@keyframes sealingPulse{
+  0%,100%{ transform:scale(1); opacity:0.85; }
+  50%{ transform:scale(1.35); opacity:1; }
+}
+.sealingText{
+  margin:0;
+  font-family:'Cormorant Garamond', serif;
+  font-style:italic;
+  font-size:17px;
+  color:#3a2410;
+  letter-spacing:0.02em;
+  text-shadow:0 1px 0 rgba(255,240,200,0.25);
+  opacity:0.9;
 }
 
 .sealedOverlay{
@@ -2664,7 +2703,35 @@ textarea:disabled{ opacity:.7; }
   .glassBottle{ right:16px; bottom:28px; width:88px; }
 }
 
-:focus-visible{ outline:2px solid rgba(180,80,40,.7); outline-offset:2px; }
+/* Generic focus for a11y — themed fields override below */
+:focus-visible{ outline:2px solid rgba(180,80,40,.55); outline-offset:2px; }
+
+/* Parchment fields: no harsh box — soft ember glow only */
+textarea:focus,
+textarea:focus-visible,
+.lineInput:focus,
+.lineInput:focus-visible,
+.sealButton:focus-visible,
+.journeyChoice:focus-visible,
+.captchaSealBtn:focus-visible,
+.readingClose:focus-visible,
+.writeAnother:focus-visible,
+.journeyCancel:focus-visible,
+.captchaCancel:focus-visible {
+  outline: none;
+}
+textarea:focus-visible{
+  filter:brightness(1.03);
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 80, 35, 0.28),
+    0 0 18px rgba(180, 70, 25, 0.12);
+}
+.lineInput:focus-visible{
+  border-color:#7a3a1c;
+  box-shadow:
+    0 1.5px 0 0 #7a3a1c,
+    0 0 12px rgba(180, 70, 25, 0.15);
+}
 @media (prefers-reduced-motion: reduce){ 
   *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
   .leftScene.breathe{ animation:none; }
