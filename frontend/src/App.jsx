@@ -188,7 +188,7 @@ const Turnstile = forwardRef(function Turnstile({ onVerify, onExpire, onError },
   }));
 
   useEffect(() => {
-    const sitekey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+    const sitekey ="0x4AAAAAAEJUQokk0eOAXxml";
 
     const render = () => {
       if (!window.turnstile || !containerRef.current) return;
@@ -198,7 +198,9 @@ const Turnstile = forwardRef(function Turnstile({ onVerify, onExpire, onError },
       }
       widgetId.current = window.turnstile.render(containerRef.current, {
         sitekey,
-        callback: (token) => cbRef.current.onVerify?.(token),
+        callback: (token) => {
+         cbRef.current.onVerify?.(token);
+        },
         "expired-callback": () => {
           cbRef.current.onExpire?.();
           cbRef.current.onVerify?.(null);
@@ -249,6 +251,22 @@ function isFutureDateTime(dateStr, timeStr) {
   return target.getTime() > Date.now() - 60_000;
 }
 
+/** Combine date + time into ISO UTC for the backend / EventBridge */
+function toDeliverAt(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null;
+  const local = new Date(`${dateStr}T${timeStr}:00`);
+  if (Number.isNaN(local.getTime())) return null;
+  return local.toISOString();
+}
+
+// AWS API Gateway (Dev stage)
+// Override with VITE_API_BASE in .env if needed
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  "https://d7hqzbts34.execute-api.ap-southeast-2.amazonaws.com/Dev";
+const LETTERS_URL = `${API_BASE}/letters`;
+const TRAVELER_RANDOM_URL = `${API_BASE}/letters/traveler/random`;
+
 const HINTS = {
   message: "The parchment awaits your words, ashen one.",
   messageShort: "Speak more. A single breath will not carry far.",
@@ -260,27 +278,66 @@ const HINTS = {
   emailInvalid: "That path is broken. Give a true address.",
 };
 
-/* Stub traveler letters (replace with real backend later) */
-const TRAVELER_LETTERS = [
+/* When the bottle finds no unclaimed TRAVELER letter in the DB.
+   2 read like real letters; 8 explain the empty fire. */
+const EMPTY_BOTTLE_MESSAGES = [
+  // —— real letter–style (2) ——
   {
-    id: "t1",
+    kind: "letter",
     text: "I left this fire warmer than I found it. May you do the same.",
     name: "Anonymous Traveler",
-    mood: "hopeful",
   },
   {
-    id: "t2",
-    text: "The night is long, but the embers remember every face that sat beside them.",
-    name: "A weary knight",
-    mood: "reflective",
-  },
-  {
-    id: "t3",
+    kind: "letter",
     text: "If you are reading this, you are not alone at the last campfire.",
-    name: "Anonymous Traveler",
-    mood: "comforting",
+    name: "A weary knight",
+  },
+  // —— empty / none available (8) ——
+  {
+    kind: "empty",
+    text: "The bottle is empty. No traveler has left words here of late.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "Only ash remains. The embers hold no letter for you this night.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "The fire has not been entrusted with new words. Sit a while; another may yet arrive.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "Nothing stirs within the glass. The road has been quiet.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "A hollow bottle. Perhaps the next soul to rest here will leave something behind.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "No parchment answers the cork. Return when the night is less still.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "The campfire remembers many faces — but none have left a message for you now.",
+    name: "The Last Campfire",
+  },
+  {
+    kind: "empty",
+    text: "Silence. The bottle yields only the scent of old smoke and distant rain.",
+    name: "The Last Campfire",
   },
 ];
+
+function pickEmptyBottleMessage() {
+  return EMPTY_BOTTLE_MESSAGES[Math.floor(Math.random() * EMPTY_BOTTLE_MESSAGES.length)];
+}
 
 /* ---------------------------- app ---------------------------- */
 const KNIGHT_IMAGE_SRC = "/Knight_Resting.mov";
@@ -305,7 +362,6 @@ export default function App() {
   const [journeyModal, setJourneyModal] = useState(false);
   const [letterPath, setLetterPath] = useState(null); // "return" | "adrift"
   const [displayName, setDisplayName] = useState("");
-  const [mood, setMood] = useState("");
   const [readingMode, setReadingMode] = useState(false);
   const [currentTravelerLetter, setCurrentTravelerLetter] = useState(null);
   const [bottleAnimating, setBottleAnimating] = useState(false);
@@ -326,6 +382,8 @@ export default function App() {
   const quillPos = useRef({ x: 0, y: 0 });
   const rafId = useRef(null);
   const textareaRef = useRef(null);
+  const dateInputRef = useRef(null);
+  const timeInputRef = useRef(null);
   const inkSettleTimeout = useRef(null);
   const audioRef = useRef(null);
   const sealTimeouts = useRef([]);
@@ -547,10 +605,16 @@ export default function App() {
   }
 
   function validateReturnFields() {
+    // Prefer live DOM values — native pickers can desync from React state briefly
+    const liveDate = dateInputRef.current?.value || date;
+    const liveTime = timeInputRef.current?.value || time;
+    if (liveDate && liveDate !== date) setDate(liveDate);
+    if (liveTime && liveTime !== time) setTime(liveTime);
+
     const next = {};
-    if (!date) next.date = HINTS.date;
-    else if (!isFutureDateTime(date, time || "00:00")) next.date = HINTS.datePast;
-    if (!time) next.time = HINTS.time;
+    if (!liveDate) next.date = HINTS.date;
+    else if (!isFutureDateTime(liveDate, liveTime || "00:00")) next.date = HINTS.datePast;
+    if (!liveTime) next.time = HINTS.time;
     if (!email.trim()) next.email = HINTS.email;
     else if (!EMAIL_RE.test(email.trim())) next.email = HINTS.emailInvalid;
     setErrors((p) => ({ ...p, ...next }));
@@ -591,6 +655,13 @@ export default function App() {
   async function performSeal(path) {
     clearSealTimeouts(); // cancel any in-flight seal sequence
 
+    // Capture token at seal start (avoid stale closure after delays)
+    const token = turnstileToken;
+    if (!token) {
+      setShowCaptchaModal(true);
+      return;
+    }
+
     setFireLevel(2);
     scheduleSealTimeout(() => setFireLevel(1), 600);
     scheduleSealTimeout(() => setFireLevel(-1), 1400);
@@ -604,24 +675,54 @@ export default function App() {
 
     scheduleSealTimeout(async () => {
       try {
-        // Uncomment when backend is ready:
-        // const res = await fetch("/api/letters", {
-        //   method: "POST",
-        //   headers: { "Content-Type": "application/json" },
-        //   body: JSON.stringify({
-        //     message,
-        //     path,
-        //     date: path === "return" ? date : undefined,
-        //     time: path === "return" ? time : undefined,
-        //     email: path === "return" ? email : undefined,
-        //     turnstileToken,
-        //   }),
-        // });
-        // if (!res.ok) throw new Error("Seal failed");
+        // Shared endpoint — type discriminates SELF vs TRAVELER
+        let body;
+        if (path === "return") {
+          const liveDate = dateInputRef.current?.value || date;
+          const liveTime = timeInputRef.current?.value || time;
+          const scheduledAt = toDeliverAt(liveDate, liveTime);
+          if (!scheduledAt) throw new Error("invalid_deliver_at");
+          body = {
+            type: "SELF",
+            message: message.trim(),
+            email: email.trim(),
+            scheduledAt,
+            turnstileToken: token,
+          };
+        } else {
+          body = {
+            type: "TRAVELER",
+            message: message.trim(),
+            turnstileToken: token,
+            // optional fields your API may ignore for now
+            displayName: (displayName || "").trim() || "Anonymous Traveler",
+          };
+        }
+
+        console.log("[seal] POST", LETTERS_URL, body);
+
+        const res = await fetch(LETTERS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        // API returns 403 when Turnstile verification fails
+        if (res.status === 403) {
+          throw new Error("captcha_failed");
+        }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `seal_failed_${res.status}`);
+        }
+
+        const data = await res.json().catch(() => ({}));
+        console.log("[seal] success", data);
 
         setPhase("sealed");
         setPostSealEmbers(true);
       } catch (err) {
+        console.error("[seal] failed", err);
         // Token rejected or network error — reset captcha so user can retry
         turnstileRef.current?.reset();
         setTurnstileToken(null);
@@ -629,6 +730,8 @@ export default function App() {
         setFireLevel(0);
         setShake(true);
         scheduleSealTimeout(() => setShake(false), 420);
+        // Re-open captcha gate on captcha/network failure
+        setShowCaptchaModal(true);
       }
     }, 1180);
   }
@@ -654,19 +757,43 @@ export default function App() {
     performSeal(letterPath || "adrift");
   }
 
-  function handleBottleClick() {
+  async function handleBottleClick() {
     if (bottleAnimating || readingMode) return;
     setBottleAnimating(true);
 
-    setTimeout(() => {
-      const letter = TRAVELER_LETTERS[Math.floor(Math.random() * TRAVELER_LETTERS.length)];
-      setCurrentTravelerLetter(letter);
+    await new Promise((r) => setTimeout(r, 1600));
+
+    try {
+      const res = await fetch(TRAVELER_RANDOM_URL);
+      if (res.status === 404) {
+        const fallback = pickEmptyBottleMessage();
+        setCurrentTravelerLetter(fallback);
+        setReadingMode(true);
+        return;
+      }
+      if (!res.ok) throw new Error(`fetch_failed_${res.status}`);
+
+      const data = await res.json();
+      const letter = data.letter || data;
+      setCurrentTravelerLetter({
+        id: letter.letterId || letter.id,
+        text: letter.message || letter.text,
+        name: letter.displayName || letter.name || "Anonymous Traveler",
+      });
       setReadingMode(true);
+    } catch (err) {
+      console.error("[bottle] fetch failed", err);
+      const fallback = pickEmptyBottleMessage();
+      setCurrentTravelerLetter(fallback);
+      setReadingMode(true);
+    } finally {
       setBottleAnimating(false);
-    }, 1600);
+    }
   }
 
   function handleReset() {
+    console.trace("RESET CALLED");
+    console.log("[reset] phase at time of reset:", phase);
     clearSealTimeouts();
     clearEffectTimeouts();
     setMessage("");
@@ -687,7 +814,6 @@ export default function App() {
     setShowCaptchaModal(false);
     setTurnstileToken(null);
     setDisplayName("");
-    setMood("");
     setReadingMode(false);
     setCurrentTravelerLetter(null);
   }
@@ -871,29 +997,50 @@ export default function App() {
                         <div className="fieldLabel">When shall these words find you again?</div>
                         <div className="fieldInline">
                           <input
+                            ref={dateInputRef}
                             type="date"
                             className={`lineInput${errors.date ? " invalid" : ""}`}
                             value={date}
                             min={minDate}
                             onChange={(e) => {
-                              // ignore empty events browsers fire when opening the picker
-                              if (e.target.value) setDate(e.target.value);
+                              const v = e.target.value;
+                              // Chrome/Safari emit "" when opening/closing pickers — ignore
+                              if (!v) return;
+                              setDate(v);
                               clearError("date");
                             }}
-                            onBlur={() => markTouched("date")}
+                            onBlur={(e) => {
+                              // recover if browser wiped the controlled value mid-interaction
+                              if (!e.target.value && date) {
+                                e.target.value = date;
+                              }
+                              markTouched("date");
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onFocus={(e) => e.stopPropagation()}
                             disabled={phase !== "writing"}
                           />
                           <input
+                            ref={timeInputRef}
                             type="time"
+                            step="60"
                             className={`lineInput${errors.time ? " invalid" : ""}`}
-                            value={time || "12:00"}
+                            value={time}
                             onChange={(e) => {
-                              // browsers often emit "" when the clock UI opens — don't wipe state
-                              if (e.target.value) setTime(e.target.value);
+                              const v = e.target.value;
+                              // opening the clock UI often fires onChange("") — keep previous
+                              if (!v) return;
+                              setTime(v);
                               clearError("time");
-                              clearError("date");
                             }}
-                            onBlur={() => markTouched("time")}
+                            onBlur={(e) => {
+                              if (!e.target.value && time) {
+                                e.target.value = time;
+                              }
+                              markTouched("time");
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onFocus={(e) => e.stopPropagation()}
                             disabled={phase !== "writing"}
                           />
                         </div>
@@ -1024,7 +1171,14 @@ export default function App() {
                     Sealed until {formattedDate} · returning to {email}
                   </div>
                 )}
-                <button type="button" className="writeAnother" onClick={handleReset}>
+                <button
+                  type="button"
+                  className="writeAnother"
+                  onClick={(e) => {
+                    console.log("[reset] clicked element:", e.target, "at", e.clientX, e.clientY);
+                    handleReset();
+                  }}
+                >
                   Inscribe another letter
                 </button>
               </div>
@@ -1042,7 +1196,7 @@ export default function App() {
           disabled={bottleAnimating || readingMode}
         >
           <img
-            src="/GLass_Bottle.png"
+            src="/GLass_Bottle-removebg-preview.png"
             alt=""
             className="bottleImg"
             draggable="false"
@@ -1084,8 +1238,20 @@ export default function App() {
 
       {/* Reading mode */}
       {readingMode && currentTravelerLetter && (
-        <div className="readingOverlay">
-          <div className="readingParchment">
+        <div
+          className="readingOverlay"
+          onClick={() => {
+            setReadingMode(false);
+            setCurrentTravelerLetter(null);
+          }}
+        >
+          <div
+            className="readingParchment"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Traveler letter"
+          >
             <div className="rpBurn rpBurn1" aria-hidden="true" />
             <div className="rpBurn rpBurn2" aria-hidden="true" />
             <div className="rpCoffee" aria-hidden="true" />
@@ -1095,13 +1261,20 @@ export default function App() {
             <div className="rpCurl" aria-hidden="true" />
             <div className="rpFade" aria-hidden="true" />
 
-            <div className="readingHeader">A letter found by the fire</div>
-            <div className="readingBody">{currentTravelerLetter.text}</div>
-            <div className="readingMeta">
-              — {currentTravelerLetter.name}
-              {currentTravelerLetter.mood && ` · ${currentTravelerLetter.mood}`}
+            <div className="readingScroll">
+              <div className="readingHeader">
+                {currentTravelerLetter.kind === "empty"
+                  ? "The bottle yields nothing"
+                  : "A letter found by the fire"}
+              </div>
+              <div className="readingBody">{currentTravelerLetter.text}</div>
+              <div className="readingMeta">
+                — {currentTravelerLetter.name || "Anonymous Traveler"}
+              </div>
             </div>
+
             <button
+              type="button"
               className="readingClose"
               onClick={() => {
                 setReadingMode(false);
@@ -2111,13 +2284,19 @@ textarea:disabled{ opacity:.7; }
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  overflow: auto;
 }
 
 .readingParchment {
   position: relative;
   width: 560px;
   max-width: 92vw;
-  padding: 48px 46px 42px;
+  max-height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+  padding: 40px 40px 20px;
   background:
     radial-gradient(90% 70% at 15% 10%, rgba(230, 210, 170, 0.35), transparent 55%),
     radial-gradient(70% 60% at 90% 90%, rgba(80, 45, 20, 0.28), transparent 60%),
@@ -2128,6 +2307,25 @@ textarea:disabled{ opacity:.7; }
     inset 0 0 80px rgba(255, 255, 255, 0.04);
   transform: rotate(-1.6deg);
   overflow: hidden;
+}
+
+.readingScroll {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  margin-bottom: 8px;
+  /* subtle parchment scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90, 50, 20, 0.45) transparent;
+}
+.readingScroll::-webkit-scrollbar { width: 6px; }
+.readingScroll::-webkit-scrollbar-thumb {
+  background: rgba(90, 50, 20, 0.4);
+  border-radius: 3px;
 }
 
 .readingParchment::after {
@@ -2257,17 +2455,21 @@ textarea:disabled{ opacity:.7; }
   position: relative;
   z-index: 1;
   font-family: 'Caveat', serif;
-  font-size: 26px;
-  line-height: 1.55;
+  font-size: 22px;
+  line-height: 1.5;
   color: #2a1c0e;
-  min-height: 160px;
+  min-height: 80px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   text-shadow: 0.3px 0.3px 0.6px rgba(38, 24, 12, 0.3);
 }
 
 .readingMeta {
   position: relative;
   z-index: 1;
-  margin-top: 30px;
+  margin-top: 22px;
+  margin-bottom: 8px;
   font-family: 'Cormorant Garamond', serif;
   font-style: italic;
   color: #5a3a1c;
@@ -2277,17 +2479,51 @@ textarea:disabled{ opacity:.7; }
 
 .readingClose {
   position: relative;
-  z-index: 1;
+  z-index: 3;
+  flex: 0 0 auto;
   display: block;
-  margin: 34px auto 0;
-  background: none;
-  border: none;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 12px;
-  color: #7a3a20;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 12px auto 6px;
+  padding: 11px 22px;
+  background:
+    linear-gradient(165deg, rgba(255, 248, 230, 0.35), rgba(40, 22, 10, 0.06));
+  border: 1.5px solid rgba(70, 40, 15, 0.4);
+  border-radius: 2px;
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  font-family: 'Cinzel', serif;
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #3a2410;
+  text-decoration: none;
+  opacity: 1;
   cursor: pointer !important;
+  text-align: center;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background 220ms ease;
+}
+.readingClose:hover {
+  transform: translateY(-2px);
+  border-color: rgba(140, 70, 30, 0.55);
+  background:
+    linear-gradient(165deg, rgba(255, 245, 220, 0.45), rgba(60, 30, 10, 0.08));
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(180, 100, 40, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  color: #2a180c;
+  text-decoration: none;
+}
+.readingClose:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
 }
 
 
@@ -2391,7 +2627,15 @@ textarea:disabled{ opacity:.7; }
 }
 
 /* Ensure interactive elements receive clicks */
-.rightWrap, .parchment, .letterForm, .sealButton, .lineInput, textarea, .writeAnother, .field, .content, .glassBottle, .journeyChoice, .journeyCancel, .readingClose {
+.rightWrap, .parchment, .letterForm, .sealButton, .lineInput, textarea, .field, .content, .glassBottle, .journeyChoice, .journeyCancel, .readingClose {
+  pointer-events: auto;
+}
+/* writeAnother must NOT force pointer-events:auto — otherwise it steals clicks
+   even while .sealedOverlay has pointer-events:none (children can still be targets) */
+.writeAnother {
+  pointer-events: none;
+}
+.sealedOverlay.show .writeAnother {
   pointer-events: auto;
 }
 
