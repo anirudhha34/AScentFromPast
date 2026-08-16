@@ -90,7 +90,7 @@ function NightScene({ fireLevel, fireEmbers, imageSrc, revealed }) {
   );
 
   return (
-    <div className={`leftScene${revealed ? " revealed" : ""}`} aria-hidden="true">
+    <div className={`leftScene breathe${revealed ? " revealed" : ""}`} aria-hidden="true">
       {!imgFailed ? (
         <video
           className="knightImg"
@@ -458,12 +458,19 @@ export default function App() {
     }
     window.addEventListener("mousemove", onMove);
 
+    // Snap on scroll so lerp lag does not look like cursor "spacing"
+    function onScroll() {
+      quillPos.current.x = mouse.current.x;
+      quillPos.current.y = mouse.current.y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+
     function tick() {
-      // tighter tracking so the quill stays close to the real cursor
-      quillPos.current.x += (mouse.current.x - quillPos.current.x) * 0.55;
-      quillPos.current.y += (mouse.current.y - quillPos.current.y) * 0.55;
+      quillPos.current.x += (mouse.current.x - quillPos.current.x) * 0.65;
+      quillPos.current.y += (mouse.current.y - quillPos.current.y) * 0.65;
       if (quillRef.current) {
-        quillRef.current.style.transform = `translate(${quillPos.current.x - 4}px, ${quillPos.current.y - 8}px) rotate(38deg)`;
+        quillRef.current.style.transform =
+          `translate3d(${quillPos.current.x - 4}px, ${quillPos.current.y - 8}px, 0) rotate(38deg)`;
       }
       rafId.current = requestAnimationFrame(tick);
     }
@@ -471,6 +478,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("scroll", onScroll, true);
       if (rafId.current) cancelAnimationFrame(rafId.current);
     };
   }, []);
@@ -845,7 +853,15 @@ export default function App() {
     fireLevel === 2 ? " fireBright" : fireLevel === 1 ? " fireBoost" : fireLevel === -1 ? " fireSettle" : "";
 
   return (
-    <div className={`stage${shake ? " shake" : ""} breathing${journeyModal || readingMode || showCaptchaModal ? " modalOpen" : ""}`}>
+    <>
+      {/* Quill outside .stage: CSS transforms on ancestors break position:fixed */}
+      {!journeyModal && !readingMode && !showCaptchaModal && (
+        <div className="quillCursor" ref={quillRef} aria-hidden="true">
+          <QuillIcon className="quillSvg" />
+        </div>
+      )}
+
+      <div className={`stage${shake ? " shake" : ""}${journeyModal || readingMode || showCaptchaModal ? " modalOpen" : ""}`}>
       <audio ref={audioRef} src="/Bg_Music_BoneFire.mp3" preload="auto" />
       <style>{CSS}</style>
 
@@ -859,11 +875,6 @@ export default function App() {
       )}
 
       <div className="emberLayer" ref={layerRef} aria-hidden="true" />
-      {!journeyModal && !readingMode && !showCaptchaModal && (
-        <div className="quillCursor" ref={quillRef} aria-hidden="true">
-          <QuillIcon className="quillSvg" />
-        </div>
-      )}
 
       <div className={`ashLayer${journeyModal || readingMode || showCaptchaModal ? " paused" : ""}`} aria-hidden="true">
         {ashEmbers.map((a) => (
@@ -1329,6 +1340,7 @@ export default function App() {
 
       <div className="footerQuote">&#9671; Time remembers what we forget. &#9671;</div>
     </div>
+    </>
   );
 }
 
@@ -1347,7 +1359,6 @@ const CSS = `
   font-family:'IBM Plex Mono',monospace;
 }
 .stage.modalOpen{ cursor:auto; }
-.stage.modalOpen .quillCursor{ display:none; }
 .stage.modalOpen .ashLayer,
 .stage.modalOpen .embers,
 .stage.modalOpen .dustLayer,
@@ -1360,7 +1371,10 @@ const CSS = `
 .ashLayer.paused * {
   animation-play-state: paused !important;
 }
-.stage.breathing{ animation: breathe 22s ease-in-out infinite; }
+/* Breathe on the scene only — never on .stage, or position:fixed cursor breaks */
+.leftScene.breathe{
+  animation: breathe 22s ease-in-out infinite;
+}
 @keyframes breathe{
   0%,100%{ transform:translateY(0); }
   50%{ transform:translateY(-1.8px); }
@@ -2653,6 +2667,6 @@ textarea:disabled{ opacity:.7; }
 :focus-visible{ outline:2px solid rgba(180,80,40,.7); outline-offset:2px; }
 @media (prefers-reduced-motion: reduce){ 
   *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
-  .stage.breathing{ animation:none; }
+  .leftScene.breathe{ animation:none; }
 }
 `;
