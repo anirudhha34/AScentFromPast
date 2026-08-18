@@ -1449,7 +1449,7 @@ const CSS = `
 }
 
 .leftScene{
-  position:absolute; inset:0; right:37%;
+  position:absolute; inset:0; right:20%;
   overflow:hidden; background:#020308;
   opacity:0; transform:scale(1.02);
   transition:opacity 1100ms ease, transform 1400ms ease;
@@ -1459,7 +1459,7 @@ const CSS = `
   position:absolute; inset:0;
   width:100%; height:100%;
   object-fit:cover;
-  object-position:42% 50%;
+  object-position:40% 52%;
   display:block;
   filter:saturate(.7) brightness(.78) contrast(1.15) sepia(.08);
   transform:scale(1.02);
@@ -1596,7 +1596,7 @@ const CSS = `
 .rightWrap{
   position:relative; z-index:5;
   min-height:100vh; display:flex; align-items:center; justify-content:center;
-  padding:4vh 3vw 4vh calc(50% + 1vw);
+  padding:3.5vh 3.5vw 3.5vh calc(54% + 0.5vw);
   opacity:0; transform:translateY(10px) scale(.985);
   transition:opacity 900ms ease, transform 900ms ease;
 }
@@ -1605,7 +1605,7 @@ const CSS = `
 .rightWrap::before{
   content:"";
   position:absolute;
-  left:calc(30% - 40px);
+  left:calc(36% - 40px);
   top:6%;
   bottom:6%;
   width:260px;
@@ -1627,8 +1627,8 @@ const CSS = `
 }
 .parchment{
   position:relative; z-index:1;
-  width:600px; max-width:100%;
-  padding:34px 42px 30px;
+  width:min(450px, 40vw); max-width:100%;
+  padding:28px 34px 24px;
   background:
     radial-gradient(120% 90% at 20% 0%, rgba(230,210,170,.38), transparent 55%),
     radial-gradient(90% 70% at 100% 100%, rgba(80,45,20,.35), transparent 60%),
