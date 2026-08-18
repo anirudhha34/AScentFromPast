@@ -322,25 +322,205 @@ function renderLetterHtml(letter) {
   const createdDate = new Date(letter.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const deliveredDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const safeMessage = escapeHtml(letter.message || '');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body{margin:0;background:#14110d;font-family:Georgia,serif;color:#2f2417;}
-.wrapper{width:100%;padding:60px 0;}
-.paper{max-width:700px;margin:auto;background:#f4e1b9;border-radius:6px;padding:60px;}
-.heading{text-align:center;font-size:42px;color:#43311c;margin-bottom:10px;}
-.sub{text-align:center;color:#6d5336;font-style:italic;margin-bottom:45px;}
-.divider{text-align:center;color:#8b6b43;margin:35px 0;letter-spacing:6px;}
-.letter{font-size:22px;line-height:2;white-space:pre-wrap;color:#332312;}
-.footer{margin-top:60px;text-align:center;color:#7c6547;font-size:15px;font-style:italic;}
-.small{text-align:center;color:#927c5b;margin-top:20px;font-size:13px;}
-</style></head><body><div class="wrapper"><div class="paper">
-<div class="heading">Dear Future Me,</div>
-<div class="sub">This letter has travelled through time.<br>It waited patiently for this exact moment.</div>
-<div class="divider">──────── ◇ ────────</div>
-<div class="letter">${safeMessage}</div>
-<div class="divider">──────── ◇ ────────</div>
-<div class="footer">Time remembers what we forget.</div>
-<div class="small">Written on ${createdDate}<br>Delivered on ${deliveredDate}</div>
-</div></div></body></html>`;
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+
+<style>
+body {
+  margin: 0;
+  padding: 0;
+  background: #14110d;
+  font-family: Georgia, "Times New Roman", serif;
+  color: #2f2417;
+}
+
+.wrapper {
+  width: 100%;
+  padding: 50px 16px;
+  box-sizing: border-box;
+}
+
+.paper {
+  max-width: 700px;
+  margin: 0 auto;
+  background: #f4e1b9;
+  border-radius: 6px;
+  padding: 55px 60px;
+  box-sizing: border-box;
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.45),
+    inset 0 0 70px rgba(115, 79, 35, 0.08);
+}
+
+/* Heading */
+
+.heading {
+  text-align: center;
+  font-size: 42px;
+  line-height: 1.2;
+  font-weight: normal;
+  color: #43311c;
+  margin-bottom: 14px;
+}
+
+.sub {
+  text-align: center;
+  color: #765c3d;
+  font-size: 16px;
+  line-height: 1.7;
+  font-style: italic;
+  margin-bottom: 38px;
+}
+
+/* Decorative divider */
+
+.divider {
+  text-align: center;
+  color: #98764d;
+  margin: 32px 0;
+  letter-spacing: 5px;
+  font-size: 14px;
+}
+
+/* Actual letter */
+
+.letter {
+  font-size: 21px;
+  line-height: 1.95;
+  color: #332312;
+  white-space: pre-wrap;
+  text-align: left;
+  padding: 10px 4px;
+}
+
+/* Closing */
+
+.footer {
+  margin-top: 45px;
+  text-align: center;
+  color: #806849;
+  font-size: 17px;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+.small {
+  text-align: center;
+  color: #927c5b;
+  margin-top: 24px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* Small final signature */
+
+.signature {
+  margin-top: 32px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(93, 67, 37, 0.18);
+  text-align: center;
+  color: #8a704f;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* Mobile */
+
+@media screen and (max-width: 600px) {
+
+  .wrapper {
+    padding: 20px 10px;
+  }
+
+  .paper {
+    padding: 38px 24px;
+  }
+
+  .heading {
+    font-size: 32px;
+  }
+
+  .sub {
+    font-size: 14px;
+    margin-bottom: 30px;
+  }
+
+  .divider {
+    margin: 25px 0;
+    letter-spacing: 3px;
+  }
+
+  .letter {
+    font-size: 18px;
+    line-height: 1.8;
+  }
+
+  .footer {
+    margin-top: 35px;
+    font-size: 15px;
+  }
+
+  .small {
+    font-size: 12px;
+  }
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="wrapper">
+
+  <div class="paper">
+
+    <div class="heading">
+      Dear Future Me,
+    </div>
+
+    <div class="sub">
+      This letter has travelled through time.<br>
+      It waited patiently for this exact moment.
+    </div>
+
+
+    <div class="divider">
+      ──────── ◇ ────────
+    </div>
+
+
+    <div class="letter">${safeMessage}</div>
+
+
+    <div class="divider">
+      ──────── ◇ ────────
+    </div>
+
+
+    <div class="footer">
+      Time remembers what we forget.
+    </div>
+
+
+    <div class="small">
+      Written on ${createdDate}<br>
+      Delivered on ${deliveredDate}
+    </div>
+
+
+    <div class="signature">
+      Entrusted to time
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>`;
 }
 
 async function sendLetterViaSes(letter) {

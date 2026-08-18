@@ -1459,7 +1459,7 @@ const CSS = `
   position:absolute; inset:0;
   width:100%; height:100%;
   object-fit:cover;
-  object-position:center 50%;
+  object-position:42% 50%;
   display:block;
   filter:saturate(.7) brightness(.78) contrast(1.15) sepia(.08);
   transform:scale(1.02);
@@ -1596,7 +1596,7 @@ const CSS = `
 .rightWrap{
   position:relative; z-index:5;
   min-height:100vh; display:flex; align-items:center; justify-content:center;
-  padding:4vh 4vw 4vh calc(42% + 1vw);
+  padding:4vh 3vw 4vh calc(50% + 1vw);
   opacity:0; transform:translateY(10px) scale(.985);
   transition:opacity 900ms ease, transform 900ms ease;
 }
@@ -1605,7 +1605,7 @@ const CSS = `
 .rightWrap::before{
   content:"";
   position:absolute;
-  left:calc(22% - 40px);
+  left:calc(30% - 40px);
   top:6%;
   bottom:6%;
   width:260px;
@@ -1627,7 +1627,7 @@ const CSS = `
 }
 .parchment{
   position:relative; z-index:1;
-  width:640px; max-width:100%;
+  width:600px; max-width:100%;
   padding:34px 42px 30px;
   background:
     radial-gradient(120% 90% at 20% 0%, rgba(230,210,170,.38), transparent 55%),
