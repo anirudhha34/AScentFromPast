@@ -2696,14 +2696,112 @@ textarea:disabled{ opacity:.7; }
 }
 
 @media (max-width:980px){
-  .leftScene{ position:relative; right:auto; height:46vh; min-height:280px; }
-  .rightWrap{ padding:24px 16px 48px; }
+  .stage{
+    display:flex;
+    flex-direction:column;
+    overflow-x:hidden;
+    overflow-y:auto;
+    min-height:100dvh;
+    cursor:auto;
+  }
+  .leftScene{
+    position:relative;
+    right:auto;
+    flex:0 0 auto;
+    height:32vh;
+    min-height:180px;
+    max-height:260px;
+  }
+  .knightImg{
+    object-position:40% 72%;
+    transform:scale(1);
+    transform-origin:center 70%;
+  }
+  .rightWrap{
+    flex:1 1 auto;
+    min-height:0;
+    align-items:flex-start;
+    padding:8px 12px calc(88px + env(safe-area-inset-bottom, 0px));
+  }
   .rightWrap::before{ display:none; }
-  .stage{ display:flex; flex-direction:column; }
+  .parchment,
+  .parchmentShadow{
+    width:100%;
+    max-width:100%;
+    transform:none;
+    animation:none;
+  }
+  .parchment{
+    padding:20px 16px 18px;
+  }
+  .parchmentShadow{
+    inset:10px 4px 6px 4px;
+  }
+  .heading{ font-size:22px; line-height:1.2; }
+  .subheading{ font-size:14px; }
+  .dearLine{ font-size:18px; }
+  .letterHead{
+    flex-wrap:wrap;
+    gap:4px 10px;
+  }
+  .writeArea::before{ left:14px; }
+  textarea{
+    height:min(38vh, 220px);
+    font-size:22px;
+    line-height:28px;
+    background-image:repeating-linear-gradient(transparent, transparent 27px, rgba(45,28,10,.28) 28px);
+    padding:4px 14px 8px 22px;
+  }
+  .restingQuill{ display:none; }
+  .ctaWrap{ padding-bottom:8px; }
+  .sealButton{
+    width:min(100%, 280px);
+    height:96px;
+  }
   .fieldsRow{ grid-template-columns:1fr; }
-  .footerQuote{ position:relative; bottom:auto; padding:16px; }
-  .vignette{ background:radial-gradient(ellipse 90% 80% at 50% 40%, transparent 35%, rgba(0,0,0,.5) 100%); }
-  .glassBottle{ right:16px; bottom:28px; width:88px; }
+  .footerQuote{
+    position:relative;
+    bottom:auto;
+    padding:12px 16px 20px;
+  }
+  .vignette{
+    background:radial-gradient(ellipse 90% 80% at 50% 40%, transparent 35%, rgba(0,0,0,.5) 100%);
+  }
+  .owlWrap,
+  .shootingStarWrap{ display:none; }
+  .glassBottle{
+    position:fixed;
+    right:12px;
+    bottom:max(16px, env(safe-area-inset-bottom));
+    width:64px;
+    z-index:25;
+  }
+  .journeyModal,
+  .captchaModal{
+    width:94%;
+    max-width:94vw;
+    padding:24px 16px 18px;
+    max-height:88dvh;
+    overflow-y:auto;
+  }
+  .journeyTitle{ font-size:22px; margin-bottom:20px; }
+  .journeyChoice{ padding:16px 14px; }
+  .readingOverlay{ padding:12px 8px; align-items:flex-start; }
+  .readingParchment{
+    width:94vw;
+    max-width:94vw;
+    padding:22px 16px 14px;
+    transform:none;
+    max-height:88dvh;
+  }
+  .readingBody{ font-size:20px; }
+}
+
+@media (max-width:420px){
+  .leftScene{ height:28vh; min-height:160px; max-height:220px; }
+  .heading{ font-size:20px; }
+  textarea{ height:min(34vh, 190px); font-size:20px; line-height:26px; }
+  .sealButton{ height:88px; }
 }
 
 /* Generic focus for a11y — themed fields override below */
