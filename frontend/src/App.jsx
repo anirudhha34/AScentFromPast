@@ -1630,8 +1630,8 @@ const CSS = `
 }
 .parchment{
   position:relative; z-index:1;
-  width:min(560px, 42vw); max-width:100%;
-  padding:32px 40px 28px;
+  width:min(550px, 43vw); max-width:100%;
+  padding:32px 35px 28px;
   background:
     radial-gradient(120% 90% at 20% 0%, rgba(230,210,170,.38), transparent 55%),
     radial-gradient(90% 70% at 100% 100%, rgba(80,45,20,.35), transparent 60%),
@@ -2678,8 +2678,8 @@ textarea:disabled{ opacity:.7; }
 
 .footerQuote{
   position:absolute; left:0; right:0; bottom:16px; z-index:6; text-align:center;
-  font-family:'Cormorant Garamond', serif; font-style:italic; font-size:13px; letter-spacing:.04em;
-  color:rgba(160,140,110,.4);
+  font-family:'Cormorant Garamond', serif; font-style:italic; font-size:18.5px; letter-spacing:.04em;
+  color:rgba(213, 177, 123, 0.4);
 }
 
 /* Ensure interactive elements receive clicks */
